@@ -97,7 +97,12 @@ interception point (`Interceptor.decide`) and one execution path
   execution is refused (`GRANT_ARGUMENTS_MISMATCH`).
 - **The in-process API trusts its caller for identity.** `harness.authorize(agent=...)`
   is for orchestrators you control. Untrusted agents must come through the HTTP
-  boundary, where identity comes from the token.
+  boundary, where identity comes from a verified token.
+- **Credentials are short-lived and never self-renewing.** Tokens carry
+  `sub`, `role`, `iat`, `exp`, `jti` under an HMAC with a key id. The verifier
+  caps lifetime regardless of the issuer, reloads the keyring on change, and
+  checks revocations in the state store. The harness never issues a token to an
+  agent that asks; supervisors do.
 
 ## Non-goals
 

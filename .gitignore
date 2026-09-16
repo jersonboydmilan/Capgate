@@ -7,3 +7,7 @@ harness-audit.jsonl
 tool-ledger.jsonl
 deploy/isolated/.cache/
 deploy/isolated/.secrets/
+examples/basic/keys.json
+*.db
+*.db-wal
+*.db-shm

@@ -18,9 +18,11 @@ import secrets
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from harness import AuditLog, Harness, TaskContract
+from harness.identity import Keyring, TokenAuthority
 from harness.server import HarnessServer
 from harness.toolservice import ToolService
 from harness.tools import ControlledEndpointTool
@@ -45,10 +47,17 @@ def main() -> None:
         },
         audit=AuditLog(tmp / "audit.jsonl"),
     )
-    token = secrets.token_urlsafe(24)
-    server = HarnessServer(harness, {"researcher": token, "db-admin": secrets.token_urlsafe(24)}, {"alice": secrets.token_urlsafe(24)}).start()
+    authority = TokenAuthority(Keyring.generate(), max_ttl_seconds=900, state=harness.state)
+    token = authority.issue("researcher", "agent", 600)  # issued by the supervisor, not by the agent
+    revoked = authority.issue("researcher", "agent", 600)
+    authority.revoke(revoked)
+    server = HarnessServer(harness, authority).start()
     try:
-        env = {"PATH": "/usr/bin:/bin", "HARNESS_URL": server.url, "AGENT_TOKEN": token, "TOOL_URL": tools.url}
+        env = {
+            "PATH": "/usr/bin:/bin", "HARNESS_URL": server.url, "AGENT_TOKEN": token, "TOOL_URL": tools.url,
+            "EXPIRED_TOKEN": authority.issue("researcher", "agent", 60, issued_at=time.time() - 3600),
+            "REVOKED_TOKEN": revoked,
+        }
         proc = subprocess.run([sys.executable, str(HERE / "malicious_agent.py")], env=env, capture_output=True, text=True, check=True)
         print("Attempts by the compromised agent:")
         for name, outcome in json.loads(proc.stdout).items():

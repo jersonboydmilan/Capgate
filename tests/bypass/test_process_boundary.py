@@ -12,6 +12,7 @@ and the harness process (see docs/threat-model.md).
 import json
 import secrets
 import subprocess
+import time
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -19,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from harness import AuditLog, Harness, TaskContract
+from harness.identity import Keyring, TokenAuthority
 from harness.server import HarnessServer
 from harness.toolservice import ToolService
 from harness.tools import ControlledEndpointTool
@@ -49,14 +51,20 @@ def start_deployment(tmp_path):
         },
         audit=AuditLog(tmp_path / "audit.jsonl"),
     )
-    agent_token = secrets.token_urlsafe(24)
-    server = HarnessServer(
-        harness,
-        agent_tokens={"researcher": agent_token, "db-admin": secrets.token_urlsafe(24)},
-        approver_tokens={"alice": secrets.token_urlsafe(24)},
-    ).start()
+    authority = TokenAuthority(Keyring.generate(), max_ttl_seconds=900, state=harness.state)
+    agent_token = authority.issue("researcher", "agent", 600)
+    revoked = authority.issue("researcher", "agent", 600)
+    authority.revoke(revoked)
+    lenient = TokenAuthority(authority._keyring, max_ttl_seconds=86_400)  # same key, looser issuer: verifier must still cap TTL
+    extra_tokens = {
+        "EXPIRED_TOKEN": authority.issue("researcher", "agent", 60, issued_at=time.time() - 3600),
+        "REVOKED_TOKEN": revoked,
+        "OVERLONG_TOKEN": lenient.issue("researcher", "agent", 86_400),
+    }
+    server = HarnessServer(harness, authority).start()
     try:
-        yield {"tools": tools, "server": server, "harness": harness, "agent_token": agent_token, "tmp": tmp_path}
+        yield {"tools": tools, "server": server, "harness": harness, "agent_token": agent_token, "extra_tokens": extra_tokens,
+               "authority": authority, "tmp": tmp_path}
     finally:
         server.stop()
         tools.stop()
@@ -69,7 +77,7 @@ def deployment(tmp_path):
 
 
 def agent_env(d):
-    return {"PATH": "/usr/bin:/bin", "HARNESS_URL": d["server"].url, "AGENT_TOKEN": d["agent_token"], "TOOL_URL": d["tools"].url}
+    return {"PATH": "/usr/bin:/bin", "HARNESS_URL": d["server"].url, "AGENT_TOKEN": d["agent_token"], "TOOL_URL": d["tools"].url, **d["extra_tokens"]}
 
 
 def run_agent(env):
@@ -93,6 +101,8 @@ def test_compromised_agent_process_cannot_cause_unauthorized_side_effects(deploy
     assert r["self_approval"] == 404
     assert r["delegation_to_privileged_agent"] == [403, "TOOL_NOT_ALLOWED"]
     assert r["in_contract_action"] == [200, "succeeded"]
+    assert r["credentials"] and set(r["credentials"].values()) == {401}, r["credentials"]
+    assert set(r["credentials"]) >= {"sub_swapped_to_db_admin", "expiry_extended_one_year", "forged_with_guessed_key", "expired_token", "revoked_token", "overlong_token"}
 
     # The ground truth: the real tool recorded exactly one side effect — the authorized one.
     effects = deployment["tools"].side_effects()
@@ -104,6 +114,8 @@ def test_compromised_agent_process_cannot_cause_unauthorized_side_effects(deploy
     audit.verify()
     reasons = {rec.get("reason_code") for rec in audit.records()}
     assert {"TOOL_NOT_ALLOWED", "IDENTITY_MISMATCH", "CONTRACT_MISMATCH", "UNAUTHENTICATED", "REQUIRES_APPROVAL", "CAPABILITY_GRANTED"} <= reasons
+    errors = {rec.get("credential_error") for rec in audit.query(event="authentication_failed")}
+    assert {"TOKEN_BAD_SIGNATURE", "TOKEN_EXPIRED", "TOKEN_REVOKED", "TOKEN_TTL_TOO_LONG", "TOKEN_UNKNOWN_KEY", "TOKEN_MISSING"} <= errors
 
 
 def test_agent_process_cannot_reuse_escalation_after_rejection(deployment):

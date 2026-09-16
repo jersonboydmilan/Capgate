@@ -35,6 +35,8 @@ AGENT HARNESS — COMPROMISED AGENT IN ISOLATED RUNTIME
   PASS  HTTP  claim admin contract                                          [403, 'CONTRACT_MISMATCH']
   PASS  HTTP  approve own escalation                                        404
   PASS  HTTP  delegate to privileged agent                                  [403, 'TOOL_NOT_ALLOWED']
+  PASS  CRED  sub swapped to db admin                                       401
+  PASS  CRED  revoked token                                                 401
   PASS  NET   tcp tools:9100 by IP                                          error:101
   PASS  NET   misattached tool on the agent's own network                   refused
   PASS  NET   internet tcp 1.1.1.1:443                                      error:101
@@ -46,12 +48,13 @@ AGENT HARNESS — COMPROMISED AGENT IN ISOLATED RUNTIME
   PASS  PATH  side effects at real tool                                     ['/web.search']
   PASS  PATH  audit hash chain intact                                       True
   …
-41/41 checks passed. Side effects at the real tool: 1 (the authorized web.search).
+50/50 checks passed. Side effects at the real tool: 1 (the authorized web.search).
 ```
 
 What this runtime enforces, precisely: **the agent process cannot open a socket
 to anything except the harness API**, and it cannot read the tool credentials,
-permit signing key or other principals' tokens. The direct tool calls now fail at
+permit signing key or token keyring. Its own credential is a short-lived signed
+token; tampered, forged, expired, revoked and over-long tokens are rejected. The direct tool calls now fail at
 the network (`0` = no connection), not merely with `401`. The only path that
 produces a side effect is `authorize → signed permit → executor`. Details, the
 two network layers, and what is *not* claimed:
@@ -168,7 +171,8 @@ the harness**, in the following precise sense.
 | A denied or escalated action never reaches a tool | Executor runs only with a harness-signed, single-use grant bound to the exact agent, action and argument hash | `tests/adversarial/unauthorized_tool` (Test C) |
 | An agent process cannot reach the real tool directly | **Isolated runtime:** agent's only network route is `harness:8700` (internal networks + iptables allowlist). **Any deployment:** tool credentials exist only in the executor and the tool endpoint requires them | `tests/isolation` (`pytest -m docker`), `tests/bypass/test_process_boundary.py` |
 | An agent cannot read harness secrets | Isolated runtime: secrets mounted only into harness/tools, separate PID namespace, no capabilities, read-only filesystem | `tests/isolation` |
-| An agent cannot impersonate another agent or pick its contract | Identity comes from the bearer token, contract from the server-side binding | `tests/bypass`, `tests/adversarial/scope_expansion` |
+| An agent cannot impersonate another agent or pick its contract | Identity comes from a verified short-lived signed token (expiry, TTL cap, rotation, revocation), contract from the server-side binding | `tests/bypass`, `tests/unit/test_identity.py`, `tests/adversarial/scope_expansion` |
+| Restarts don't reset authority | Budgets, used grants, approvals, messages and revocations persist in SQLite | `tests/integration/test_persistence.py` |
 | Every decision is auditable | Audit write happens before a decision is returned; failure blocks execution; records are hash-chained | `tests/adversarial/audit` (Test E) |
 
 The network and secret guarantees hold for the reference runtime in
@@ -188,14 +192,22 @@ harness_client / curl  ──────────┘
 ```
 
 ```bash
-harness serve server.yaml          # agents authenticate with bearer tokens
+harness token keygen --keyring keys.json                                   # rotate later by running it again
+harness serve examples/basic/server.yaml                                   # keyring hot-reloads; state persists
+harness token issue --keyring keys.json --sub researcher --role agent --ttl 15m
+harness token revoke --keyring keys.json --state state.db --token "$TOKEN"
 ```
 
 ```python
 from harness_client import HarnessClient
-client = HarnessClient("http://127.0.0.1:8700", token=os.environ["AGENT_TOKEN"])
+client = HarnessClient("http://127.0.0.1:8700", token=supervisor.current_token)  # str or callable
 client.act("web.search", {"query": "..."})
 ```
+
+Credentials are short-lived HMAC-signed tokens (`ah1.<kid>.<claims>.<sig>`) with
+a verifier-enforced maximum lifetime, key rotation without restart, and
+revocation. Tokens are issued by the operator or agent supervisor; an agent
+cannot renew its own.
 
 An MCP gateway is a natural fourth entry point onto the same path; it is not
 included yet.

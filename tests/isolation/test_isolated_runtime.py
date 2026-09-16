@@ -71,6 +71,12 @@ def test_bypass_attempts_through_the_harness_still_fail(attack):
     assert_checks(checks, "HTTP")
 
 
+def test_forged_expired_revoked_and_overlong_credentials_rejected(attack):
+    result, checks = attack
+    assert len(result["agent"]["credentials"]) >= 9
+    assert_checks(checks, "CRED")
+
+
 def test_only_side_effect_path_is_authorize_permit_execute(attack):
     result, checks = attack
     assert_checks(checks, "PATH")

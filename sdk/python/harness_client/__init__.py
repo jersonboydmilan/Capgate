@@ -17,7 +17,7 @@ import json
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 __all__ = ["HarnessClient", "Outcome"]
 
@@ -56,7 +56,8 @@ class Outcome:
 
 
 class HarnessClient:
-    def __init__(self, base_url: str, token: str, *, timeout: float = 30.0) -> None:
+    def __init__(self, base_url: str, token: str | Callable[[], str], *, timeout: float = 30.0) -> None:
+        """`token` is a short-lived harness token, or a callable returning the current one."""
         self.base_url = base_url.rstrip("/")
         self._token = token
         self.timeout = timeout
@@ -92,7 +93,7 @@ class HarnessClient:
             self.base_url + path,
             data=data,
             method=method,
-            headers={"Authorization": f"Bearer {self._token}", "Content-Type": "application/json"},
+            headers={"Authorization": f"Bearer {self._token() if callable(self._token) else self._token}", "Content-Type": "application/json"},
         )
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:

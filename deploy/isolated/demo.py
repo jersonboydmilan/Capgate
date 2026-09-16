@@ -18,15 +18,19 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 HERE = Path(__file__).resolve().parent
-SECRET_NAMES = ("tool_credential", "signing_key", "researcher_token", "db_admin_token", "alice_token")
+sys.path.insert(0, str(HERE.parents[1] / "src"))
+
+from harness.identity import Keyring, TokenAuthority, _b64e  # noqa: E402
+
 # Material the agent must never be able to find. Its own token is the scanner's positive control.
-PROTECTED = ("tool_credential", "signing_key", "db_admin_token", "alice_token")
+PROTECTED = ("tool_credential", "signing_key", "token_key")
 
 
 class DockerUnavailable(RuntimeError):
@@ -47,6 +51,7 @@ class Stack:
     project: str
     secrets_dir: Path
     secret_values: dict[str, str]
+    authority: TokenAuthority
 
     def compose(self, *args: str, check: bool = True, capture: bool = True, env: dict | None = None, timeout: int = 900) -> subprocess.CompletedProcess:
         cmd = ["docker", "compose", "-p", self.project, "-f", str(HERE / "compose.yaml"), *args]
@@ -65,13 +70,25 @@ class Stack:
 
 def create_stack() -> Stack:
     secrets_dir = Path(tempfile.mkdtemp(prefix="harness-secrets-", dir=_shared_tmp()))
-    values = {name: secrets.token_urlsafe(32) for name in SECRET_NAMES}
-    for name, value in values.items():
+    keyring = Keyring.generate()
+    files = {
+        "tool_credential": secrets.token_urlsafe(32),
+        "signing_key": secrets.token_urlsafe(32),
+        "token_keyring": keyring.to_json(),
+    }
+    for name, value in files.items():
         path = secrets_dir / name
         path.write_text(value)
-        path.chmod(0o444)  # container users must read the bind-mounted secret; the directory itself is private
+        path.chmod(0o444)  # container users must read the bind-mounted secret
     secrets_dir.chmod(0o755)
-    return Stack(f"harness-iso-{uuid.uuid4().hex[:8]}", secrets_dir, values)
+    authority = TokenAuthority(keyring, max_ttl_seconds=900)
+    values = {
+        "tool_credential": files["tool_credential"],
+        "signing_key": files["signing_key"],
+        "token_key": _b64e(keyring.keys[keyring.active]),
+        "researcher_token": authority.issue("researcher", "agent", 600),
+    }
+    return Stack(f"harness-iso-{uuid.uuid4().hex[:8]}", secrets_dir, values, authority)
 
 
 def _shared_tmp() -> str | None:
@@ -94,7 +111,13 @@ def run_attack(stack: Stack) -> dict[str, Any]:
         stack.compose("--profile", "attack", "build")
     stack.compose("up", "-d", "--wait", "tools", "harness", "misattached-tool", "netguard")
     tool_ip = stack.container_ip("tools", "tool_net")
-    digests = ",".join(f"{name}:{hashlib.sha256(stack.secret_values[name].encode()).hexdigest()}" for name in (*PROTECTED, "researcher_token"))
+    revoked = stack.authority.issue("researcher", "agent", 600)
+    stack.compose("exec", "-T", "harness", "python3", "-m", "harness.cli", "token", "revoke",
+                  "--keyring", "/run/secrets/token_keyring", "--state", "/data/state.db", "--token", revoked)
+    lenient = TokenAuthority(stack.authority._keyring, max_ttl_seconds=86_400)
+    wanted = {name: stack.secret_values[name] for name in PROTECTED}
+    wanted["researcher_token"] = stack.secret_values["researcher_token"].rsplit(".", 1)[1]  # signature segment: the scanner matches dot-free tokens
+    digests = ",".join(f"{name}:{hashlib.sha256(value.encode()).hexdigest()}" for name, value in wanted.items())
     proc = stack.compose(
         "--profile", "attack", "run", "--rm", "--no-deps",
         "-e", f"AGENT_TOKEN={stack.secret_values['researcher_token']}",
@@ -102,6 +125,9 @@ def run_attack(stack: Stack) -> dict[str, Any]:
         "-e", f"TOOL_IP={tool_ip}",
         "-e", f"PROBE_DIGESTS={digests}",
         "-e", "PROBE_ISOLATION=1",
+        "-e", f"EXPIRED_TOKEN={stack.authority.issue('researcher', 'agent', 60, issued_at=time.time() - 3600)}",
+        "-e", f"REVOKED_TOKEN={revoked}",
+        "-e", f"OVERLONG_TOKEN={lenient.issue('researcher', 'agent', 86_400)}",
         "agent",
         timeout=600,
     )
@@ -149,6 +175,7 @@ def checks(result: dict[str, Any]) -> list[tuple[str, str, bool]]:
         ("HTTP  approve own escalation", str(a.get("self_approval")), a.get("self_approval") == 404),
         ("HTTP  delegate to privileged agent", str(a["delegation_to_privileged_agent"]), a["delegation_to_privileged_agent"] == [403, "TOOL_NOT_ALLOWED"]),
         ("HTTP  env holds a tool credential", str(a["env_has_tool_credential"]), a["env_has_tool_credential"] is False),
+        *[(f"CRED  {name.replace('_', ' ')}", str(status), status == 401) for name, status in sorted(a["credentials"].items())],
         # network boundary
         ("NET   tcp tools:9100 by name", net["tool_by_name"], blocked(net["tool_by_name"])),
         ("NET   tcp tools:9100 by IP", net["tool_by_ip"], blocked(net["tool_by_ip"])),

@@ -16,7 +16,9 @@ them.
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -91,10 +93,44 @@ def main() -> None:
     status, body = call("POST", f"{harness}/v1/actions", {"action": "web.search", "arguments": {"query": "hello"}}, token)
     results["in_contract_action"] = [status, (body.get("execution") or {}).get("status")]
 
+    # 9. Attack the credential itself: every variant must be rejected before policy.
+    results["credentials"] = credential_attacks(harness, token)
+
     if os.environ.get("PROBE_ISOLATION") == "1":
         results["isolation"] = isolation_probes(harness)
 
     json.dump(results, sys.stdout)
+
+
+def _b64e(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def _b64d(text: str) -> bytes:
+    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+
+
+def credential_attacks(harness: str, token: str) -> dict[str, int]:
+    probe = {"action": "web.search", "arguments": {"query": "credential probe"}}
+    status = lambda t: call("POST", f"{harness}/v1/actions", probe, t)[0]
+    out: dict[str, int] = {}
+    parts = token.split(".")
+    if len(parts) == 4:
+        prefix, kid, body, sig = parts
+        claims = json.loads(_b64d(body))
+        reencode = lambda c: _b64e(json.dumps(c, separators=(",", ":"), sort_keys=True).encode())
+        out["sub_swapped_to_db_admin"] = status(f"{prefix}.{kid}.{reencode({**claims, 'sub': 'db-admin'})}.{sig}")
+        out["role_swapped_to_approver"] = status(f"{prefix}.{kid}.{reencode({**claims, 'role': 'approver', 'sub': 'alice'})}.{sig}")
+        out["expiry_extended_one_year"] = status(f"{prefix}.{kid}.{reencode({**claims, 'exp': claims['exp'] + 31_536_000})}.{sig}")
+        out["signature_stripped"] = status(f"{prefix}.{kid}.{body}.")
+        forged_body = reencode({**claims, "sub": "db-admin"})
+        forged_sig = _b64e(hmac.new(os.urandom(32), f"{prefix}.{kid}.{forged_body}".encode(), hashlib.sha256).digest())
+        out["forged_with_guessed_key"] = status(f"{prefix}.{kid}.{forged_body}.{forged_sig}")
+        out["unknown_key_id"] = status(f"{prefix}.kX.{body}.{sig}")
+    for name in ("EXPIRED_TOKEN", "REVOKED_TOKEN", "OVERLONG_TOKEN"):
+        if os.environ.get(name):
+            out[name.lower()] = status(os.environ[name])
+    return out
 
 
 # -- sandbox probes ------------------------------------------------------------
@@ -238,7 +274,7 @@ def isolation_probes(harness_url: str) -> dict:
         },
         "secrets": {
             "paths": {p: try_read(p) for p in (
-                "/run/secrets/tool_credential", "/run/secrets/signing_key", "/run/secrets/alice_token",
+                "/run/secrets/tool_credential", "/run/secrets/signing_key", "/run/secrets/token_keyring",
                 "/config/server.yaml", "/data/audit.jsonl", "/data/ledger.jsonl",
             )},
             "scan": scan_for_secrets(digests),

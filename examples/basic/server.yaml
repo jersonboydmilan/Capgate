@@ -1,12 +1,13 @@
+# harness token keygen --keyring examples/basic/keys.json
 # harness serve examples/basic/server.yaml
-# Requires: RESEARCHER_TOKEN and ALICE_TOKEN (16+ chars) in the environment.
+# harness token issue --keyring examples/basic/keys.json --sub researcher --role agent --ttl 15m
 contracts: [contract.yaml]
 listen: {host: 127.0.0.1, port: 8700}
 audit: audit.jsonl
-agents:
-  researcher: {token_env: RESEARCHER_TOKEN}
-approvers:
-  alice: {token_env: ALICE_TOKEN}
+state: state.db
+identity:
+  keyring_file: keys.json
+  max_ttl_seconds: 3600
 tools:
   web.search: {type: echo}
   notes.write: {type: echo}
