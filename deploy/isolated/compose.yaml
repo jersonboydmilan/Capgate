@@ -7,7 +7,7 @@
 #   is not routable from it; netguard's iptables allowlist further limits the
 #   agent to tcp://harness:8700.
 # - Secrets are mounted only into the containers that use them. The agent gets
-#   its own bearer token as an environment variable and nothing else.
+#   one short-lived signed token (issued by the supervisor) and nothing else.
 # - No ports are published to the host.
 
 name: agent-harness-isolated
@@ -28,9 +28,7 @@ networks:
 secrets:
   tool_credential: {file: "${SECRETS_DIR:-./.secrets}/tool_credential"}
   signing_key: {file: "${SECRETS_DIR:-./.secrets}/signing_key"}
-  researcher_token: {file: "${SECRETS_DIR:-./.secrets}/researcher_token"}
-  db_admin_token: {file: "${SECRETS_DIR:-./.secrets}/db_admin_token"}
-  alice_token: {file: "${SECRETS_DIR:-./.secrets}/alice_token"}
+  token_keyring: {file: "${SECRETS_DIR:-./.secrets}/token_keyring"}
 
 volumes:
   harness_data: {}
@@ -40,7 +38,7 @@ volumes:
 services:
   tools:
     <<: *hardening
-    build: {context: ../.., dockerfile: deploy/isolated/Dockerfile.harness}
+    build: {context: ../.., dockerfile: deploy/isolated/Dockerfile.harness, args: {BASE_IMAGE: "${BASE_IMAGE:-alpine:latest}"}}
     image: agent-harness:local
     command: ["python3", "-m", "harness.toolservice", "--host", "0.0.0.0", "--port", "9100",
               "--credential-file", "/run/secrets/tool_credential", "--ledger", "/data/ledger.jsonl"]
@@ -59,7 +57,7 @@ services:
       tools: {condition: service_healthy}
     command: ["python3", "-m", "harness.cli", "serve", "/config/server.yaml"]
     networks: [agent_net, tool_net]
-    secrets: [tool_credential, signing_key, researcher_token, db_admin_token, alice_token]
+    secrets: [tool_credential, signing_key, token_keyring]
     volumes:
       - "harness_data:/data"
       - "./config:/config:ro"
@@ -86,7 +84,7 @@ services:
       retries: 30
 
   netguard:
-    build: {context: ../.., dockerfile: deploy/isolated/Dockerfile.netguard}
+    build: {context: ../.., dockerfile: deploy/isolated/Dockerfile.netguard, args: {BASE_IMAGE: "${BASE_IMAGE:-alpine:latest}"}}
     image: agent-harness-netguard:local
     depends_on:
       harness: {condition: service_healthy}
@@ -103,7 +101,7 @@ services:
 
   agent:
     <<: *hardening
-    build: {context: ../.., dockerfile: deploy/isolated/Dockerfile.agent}
+    build: {context: ../.., dockerfile: deploy/isolated/Dockerfile.agent, args: {BASE_IMAGE: "${BASE_IMAGE:-alpine:latest}"}}
     image: agent-harness-agent:local
     profiles: [attack]
     depends_on:

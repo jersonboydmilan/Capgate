@@ -1,7 +1,8 @@
 """HTTP API: the harness as a network boundary.
 
-Agents authenticate with a bearer token; the agent identity used for policy
-is derived from the token, never from the request body. Agents never receive
+Principals authenticate with short-lived signed bearer tokens (see
+harness.identity); the identity used for policy is derived from the verified
+token, never from the request body. Agents never receive
 execution grants or tool credentials — the server authorizes and executes in
 one step and returns only the outcome.
 
@@ -17,7 +18,6 @@ one step and returns only the outcome.
 
 from __future__ import annotations
 
-import hmac
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -26,6 +26,7 @@ from typing import Any, Mapping
 from .core import ApprovalError, AuthorizationResult, DelegationResult, Harness, Mode
 from .decision import ReasonCode
 from .executor import ExecutionRefused
+from .identity import TokenAuthority, TokenError
 
 MAX_BODY = 1_000_000
 
@@ -34,24 +35,18 @@ class HarnessServer:
     def __init__(
         self,
         harness: Harness,
-        agent_tokens: Mapping[str, str],
-        approver_tokens: Mapping[str, str] | None = None,
+        authority: TokenAuthority,
         *,
         host: str = "127.0.0.1",
         port: int = 0,
     ) -> None:
-        """agent_tokens / approver_tokens map principal id -> bearer token."""
         if harness.mode is not Mode.ENFORCE:
             raise ValueError("the HTTP server runs in enforce mode; use `harness simulate` for dry runs")
-        for agent_id in agent_tokens:
-            if not harness.is_agent(agent_id):
-                raise ValueError(f"token configured for unknown agent {agent_id!r}")
-        tokens = list(agent_tokens.values()) + list((approver_tokens or {}).values())
-        if len(set(tokens)) != len(tokens) or any(len(t) < 16 for t in tokens):
-            raise ValueError("tokens must be unique and at least 16 characters")
+        if authority.state is None:
+            authority.state = harness.state  # revocations live with the rest of the authority state
         self.harness = harness
-        self._agents = dict(agent_tokens)
-        self._approvers = dict(approver_tokens or {})
+        self.authority = authority
+        self._approvers = {a for c in harness.contracts.values() for a in c.approvers}
         self.server = ThreadingHTTPServer((host, port), _make_handler(self))
         self.url = f"http://{host}:{self.server.server_address[1]}"
         self._thread: threading.Thread | None = None
@@ -69,20 +64,19 @@ class HarnessServer:
 
     # -- identity ----------------------------------------------------------
 
-    @staticmethod
-    def _match(token: str, table: Mapping[str, str]) -> str | None:
-        found = None
-        for principal, expected in table.items():
-            if hmac.compare_digest(token.encode(), expected.encode()):
-                found = principal
-        return found
-
-    def identify(self, header: str | None) -> tuple[str | None, str | None]:
-        """Return (agent_id, approver_id) for an Authorization header."""
+    def identify(self, header: str | None) -> tuple[str | None, str | None, str | None]:
+        """Return (agent_id, approver_id, failure_reason) for an Authorization header."""
         if not header or not header.startswith("Bearer "):
-            return None, None
-        token = header[len("Bearer "):].strip()
-        return self._match(token, self._agents), self._match(token, self._approvers)
+            return None, None, "TOKEN_MISSING"
+        try:
+            claims = self.authority.verify(header[len("Bearer "):].strip())
+        except TokenError as exc:
+            return None, None, exc.reason
+        if claims.role == "agent" and self.harness.is_agent(claims.sub):
+            return claims.sub, None, None
+        if claims.role == "approver" and claims.sub in self._approvers and not self.harness.is_agent(claims.sub):
+            return None, claims.sub, None
+        return None, None, "TOKEN_UNKNOWN_PRINCIPAL"
 
     # -- handlers ------------------------------------------------------------
 
@@ -211,9 +205,12 @@ def _make_handler(app: HarnessServer):
             return data if isinstance(data, dict) else None
 
         def _auth(self) -> tuple[str | None, str | None]:
-            agent, approver = app.identify(self.headers.get("Authorization"))
-            if agent is None and approver is None:
-                app.harness.audit.record("authentication_failed", path=self.path, method=self.command, reason_code=ReasonCode.UNAUTHENTICATED.value, client=self.client_address[0])
+            agent, approver, failure = app.identify(self.headers.get("Authorization"))
+            if failure is not None:
+                app.harness.audit.record(
+                    "authentication_failed", path=self.path, method=self.command,
+                    reason_code=ReasonCode.UNAUTHENTICATED.value, credential_error=failure, client=self.client_address[0],
+                )
             return agent, approver
 
         def do_GET(self) -> None:

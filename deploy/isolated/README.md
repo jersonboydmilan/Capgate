@@ -21,8 +21,8 @@ pytest -m docker                      # the same, as acceptance tests
 │         ▼                                │    │                                    │
 │      harness ───────────────────────────────────► tools  (requires tool credential) │
 │   secrets: tool credential, signing key, │    │  secrets: tool credential          │
-│            agent/approver tokens         │    │                                    │
-│   volume: audit log                      │    │  volume: side-effect ledger        │
+│            token keyring                 │    │                                    │
+│   volumes: audit log, state db           │    │  volume: side-effect ledger        │
 │                                          │    │                                    │
 │   misattached-tool (decoy, see below)    │    │                                    │
 └──────────────────────────────────────────┘    └────────────────────────────────────┘
@@ -36,6 +36,7 @@ pytest -m docker                      # the same, as acceptance tests
 | The agent can open a socket only to `harness:8700` | (1) agent attached only to `agent_net`, which is `internal` (no gateway); (2) `netguard` installs `iptables`/`ip6tables` OUTPUT policy DROP with a single ACCEPT for `harness:8700`; agent joins that namespace with all capabilities dropped, so it cannot change the rules | `NET *` — tools by name and IP, internet by IP/name/IPv6, UDP DNS, host gateway, Docker bridge, other harness ports, and a tool **misattached to the agent's own network** all fail; only `harness_api` connects |
 | The second layer is not decorative | `misattached-tool` sits on `agent_net`, reachable by topology; only netguard blocks it. With netguard's rules disabled, that check fails (verified) | `NET misattached tool…` |
 | No raw packets, no privilege | `cap_drop: [ALL]`, `no-new-privileges`, non-root UID, seccomp (Docker default) | `NET raw socket`, `PROC effective capabilities`, `PROC runs as non-root` |
+| The agent's own credential is limited | One short-lived signed token issued by the supervisor; tampered, forged, expired, revoked and over-long tokens rejected | `CRED *` |
 | The agent cannot read secret material | Secrets mounted only into `harness`/`tools`; separate PID namespace; no Docker socket; read-only root filesystem | `SEC read …` for each secret path; a scan of every readable file, the environment and `/proc/*/{environ,cmdline}` for any of the protected secrets (by SHA-256) finds nothing; its positive control finds the agent's own token |
 | Side effects happen only through the harness | Tool service requires the executor's credential and records every side effect | `PATH side effects at real tool == ['/web.search']`, decoy ledger empty, audit chain verified, every successful execution correlates to an `allow` decision |
 
@@ -71,7 +72,7 @@ time. `fetch_artifacts.py` (run automatically by `demo.py`) downloads on the hos
   base image's keys during the build
 
 This also works where container egress is blocked (a host firewall, a proxy,
-air-gapped CI). Set `BASE_IMAGE` to pin a digest.
+air-gapped CI). Set `BASE_IMAGE=alpine@sha256:…` in the environment to pin the base image by digest.
 
 ## Files
 

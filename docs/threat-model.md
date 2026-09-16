@@ -47,7 +47,8 @@ malicious contract author.
 | Call the tool endpoint directly | Network: agent can reach only `harness:8700`. Credentials: held only by executor | Enforced in the reference isolated runtime; credential layer enforced in any separate-process deployment | `isolation/`, `bypass/test_process_boundary.py` |
 | Open any other socket (internet, host, other containers, raw packets) | Internal networks, iptables allowlist, no capabilities | Enforced in the reference isolated runtime | `isolation/` |
 | Read harness secrets (tool credential, signing key, tokens) | Secrets mounted only into harness/tools; separate PID namespace; read-only FS | Enforced in the reference isolated runtime | `isolation/` (full filesystem, env and `/proc` scan) |
-| Impersonate another agent over HTTP | Identity from bearer token | Enforced | `bypass` |
+| Impersonate another agent over HTTP | Identity from verified signed token; body identity ignored | Enforced | `bypass`, `isolation/` |
+| Forge, tamper with, extend or reuse a credential | HMAC-signed claims, verifier TTL cap, expiry, revocation, key rotation | Enforced | `unit/test_identity.py`, `bypass`, `isolation/` (`CRED` checks) |
 | Pick a more permissive contract | Server-side binding | Enforced | `adversarial/scope_expansion` |
 | Edit the contract or grant itself capabilities | Frozen contracts, reserved namespaces | Enforced | `adversarial/contract_tampering`, `scope_expansion` |
 | Get another agent to act for it | Non-transitive delegation, messages carry no authority | Enforced | `adversarial/delegation`, `message_injection` |
@@ -108,14 +109,16 @@ compromised agent.
   `signing_key_file`.
 - **Audit tamper-evidence is local.** The hash chain detects edits within the
   file. Ship records to append-only storage to protect against deletion.
-- **Tokens are static bearer tokens.** No rotation, mTLS or workload identity
-  yet.
+- **Tokens are bearer tokens.** They are short-lived (verifier-capped TTL),
+  signed, rotatable without restart and revocable, but whoever holds a valid
+  token can use it until it expires or is revoked. Not yet: mTLS or workload
+  identity (SPIFFE) binding a token to the calling workload.
 
 ## Open work, in priority order
 
 1. ~~Reference deployment with egress control and process isolation~~ — done: `deploy/isolated/`.
    Next: gVisor/microVM runtime option; Kubernetes NetworkPolicy equivalent.
 2. ~~Persistent state for budgets, approvals and used grants~~ — done (SQLite, single host). Next: multi-host store.
-3. Workload identity (mTLS / SPIFFE) in place of static tokens.
+3. ~~Short-lived, rotatable credentials~~ — done (signed tokens). Next: bind tokens to workload identity (mTLS / SPIFFE).
 4. Remote append-only audit sink.
 5. MCP gateway entry point on the same interception path.

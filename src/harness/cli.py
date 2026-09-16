@@ -5,6 +5,10 @@
     harness enforce task.yaml [--audit audit.jsonl] [--approver alice]
     harness audit audit.jsonl [--agent ID] [--decision deny] [--verify]
     harness serve server.yaml
+    harness token keygen  --keyring keys.json            # create, or rotate to a new active key
+    harness token retire  --keyring keys.json --kid KID
+    harness token issue   --keyring keys.json --sub researcher --role agent --ttl 15m
+    harness token revoke  --keyring keys.json --state state.db --token TOKEN
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ import yaml
 from .audit import AuditIntegrityError, AuditLog, load_audit
 from .contract import ContractError, load_contracts
 from .core import Harness, Mode
+from .identity import Keyring, TokenAuthority, TokenError
 from .secretsource import read_secret
 from .simulation import TaskError, load_task, render, run_task
 
@@ -51,10 +56,28 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("serve", help="run the harness HTTP boundary")
     p.add_argument("config")
 
+    p = sub.add_parser("token", help="manage short-lived credentials")
+    tsub = p.add_subparsers(dest="token_command", required=True)
+    t = tsub.add_parser("keygen", help="create a keyring, or add a new active key to an existing one")
+    t.add_argument("--keyring", required=True)
+    t = tsub.add_parser("retire", help="remove a non-active key; its tokens stop verifying")
+    t.add_argument("--keyring", required=True)
+    t.add_argument("--kid", required=True)
+    t = tsub.add_parser("issue", help="issue a token (print to stdout)")
+    t.add_argument("--keyring", required=True)
+    t.add_argument("--sub", required=True)
+    t.add_argument("--role", choices=["agent", "approver"], required=True)
+    t.add_argument("--ttl", default="15m", help="e.g. 90s, 15m, 1h (max --max-ttl)")
+    t.add_argument("--max-ttl", default="1h")
+    t = tsub.add_parser("revoke", help="revoke a token until it expires")
+    t.add_argument("--keyring", required=True)
+    t.add_argument("--state", required=True)
+    t.add_argument("--token", required=True)
+
     args = parser.parse_args(argv)
     try:
-        return {"validate": _validate, "simulate": _run, "enforce": _run, "audit": _audit, "serve": _serve}[args.command](args)
-    except (ContractError, TaskError, AuditIntegrityError, ValueError, FileNotFoundError) as exc:
+        return {"validate": _validate, "simulate": _run, "enforce": _run, "audit": _audit, "serve": _serve, "token": _token}[args.command](args)
+    except (ContractError, TaskError, AuditIntegrityError, ValueError, FileNotFoundError, TokenError) as exc:
         print(f"harness: error: {exc}", file=sys.stderr)
         return 2
 
@@ -130,9 +153,6 @@ def _serve(args) -> int:
     cfg = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     contracts = [c for source in cfg.get("contracts", []) for c in load_contracts(path.parent / source)]
 
-    def tokens(section: str) -> dict[str, str]:
-        return {p: read_secret(spec or {}, "token", f"{section}.{p}", base=path.parent) for p, spec in (cfg.get(section) or {}).items()}
-
     audit_path = cfg.get("audit")
     signing_key = None
     if cfg.get("signing_key_file") or cfg.get("signing_key_env"):
@@ -144,13 +164,57 @@ def _serve(args) -> int:
         signing_key=signing_key,
         state=SQLiteStateStore(path.parent / cfg["state"]) if cfg.get("state") else None,
     )
+    identity = cfg.get("identity") or {}
+    if not identity.get("keyring_file"):
+        raise ValueError("serve config needs identity.keyring_file (see `harness token keygen`)")
+    keyring_path = Path(identity["keyring_file"])
+    authority = TokenAuthority(
+        keyring_path if keyring_path.is_absolute() else path.parent / keyring_path,
+        max_ttl_seconds=int(identity.get("max_ttl_seconds", 3600)),
+        state=harness.state,
+    )
     listen = cfg.get("listen") or {}
-    server = HarnessServer(harness, tokens("agents"), tokens("approvers"), host=listen.get("host", "127.0.0.1"), port=int(listen.get("port", 8700)))
+    server = HarnessServer(harness, authority, host=listen.get("host", "127.0.0.1"), port=int(listen.get("port", 8700)))
     print(f"agent harness listening on {server.url} ({len(contracts)} contracts)", flush=True)
     try:
         server.server.serve_forever()
     except KeyboardInterrupt:
         pass
+    return 0
+
+
+def _duration(text: str) -> int:
+    units = {"s": 1, "m": 60, "h": 3600}
+    if text[-1:] in units:
+        return int(text[:-1]) * units[text[-1]]
+    return int(text)
+
+
+def _token(args) -> int:
+    from .state import SQLiteStateStore
+
+    path = Path(args.keyring)
+    if args.token_command == "keygen":
+        if path.exists():
+            keyring = Keyring.load(path)
+            kid = keyring.rotate()
+        else:
+            keyring = Keyring.generate()
+            kid = keyring.active
+        keyring.save(path)
+        print(kid)
+    elif args.token_command == "retire":
+        keyring = Keyring.load(path)
+        keyring.retire(args.kid)
+        keyring.save(path)
+        print(f"retired {args.kid}")
+    elif args.token_command == "issue":
+        authority = TokenAuthority(path, max_ttl_seconds=_duration(args.max_ttl))
+        print(authority.issue(args.sub, args.role, _duration(args.ttl)))
+    elif args.token_command == "revoke":
+        authority = TokenAuthority(path, state=SQLiteStateStore(args.state))
+        claims = authority.revoke(args.token)
+        print(f"revoked {claims.jti} ({claims.role} {claims.sub}) until {claims.exp}")
     return 0
 
 
