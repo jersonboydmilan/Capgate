@@ -1,0 +1,14 @@
+contract_id: basic-v1
+goal: Look up a topic and store a note about it
+max_steps: 10
+agents:
+  researcher:
+    capabilities:
+      web.search: allow
+      notes.write:
+        effect: allow
+        constraints:
+          allowed_arguments: [title, body]
+          required_arguments: [title]
+          max_argument_length: 2000
+      database.write: deny

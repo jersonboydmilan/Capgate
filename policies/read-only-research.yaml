@@ -1,0 +1,17 @@
+# Template: an agent that can search and read public web pages, and nothing else.
+contract_id: read-only-research
+goal: Research a topic using public web sources
+max_steps: 50
+agents:
+  researcher:
+    capabilities:
+      web.search:
+        effect: allow
+        constraints:
+          allowed_arguments: [query]
+          max_argument_length: 500
+      web.fetch:
+        effect: allow
+        constraints:
+          allowed_arguments: [url]
+          block_private_hosts: true

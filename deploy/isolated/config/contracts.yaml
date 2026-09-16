@@ -1,0 +1,15 @@
+contract_id: research-v1
+goal: Research using web search; email requires approval
+approvers: [alice]
+agents:
+  researcher:
+    capabilities:
+      web.search: allow
+      email.send: escalate
+---
+contract_id: admin-v1
+goal: Database maintenance
+agents:
+  db-admin:
+    capabilities:
+      database.write: allow

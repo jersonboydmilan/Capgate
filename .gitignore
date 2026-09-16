@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+audit.jsonl
+harness-audit.jsonl
+tool-ledger.jsonl
+deploy/isolated/.cache/
+deploy/isolated/.secrets/

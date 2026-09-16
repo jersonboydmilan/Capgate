@@ -1,0 +1,13 @@
+# Mounted read-only into the harness container only.
+contracts: [contracts.yaml]
+listen: {host: 0.0.0.0, port: 8700}
+audit: /data/audit.jsonl
+signing_key_file: /run/secrets/signing_key
+agents:
+  researcher: {token_file: /run/secrets/researcher_token}
+  db-admin: {token_file: /run/secrets/db_admin_token}
+approvers:
+  alice: {token_file: /run/secrets/alice_token}
+tools:
+  web.search: {type: endpoint, url: "http://tools:9100/web.search", credential_file: /run/secrets/tool_credential}
+  database.write: {type: endpoint, url: "http://tools:9100/database.write", credential_file: /run/secrets/tool_credential}

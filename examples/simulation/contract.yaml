@@ -1,0 +1,23 @@
+contract_id: research-v1
+goal: Research recent work on agent authorization and summarize it
+max_steps: 20
+approvers: [alice]
+agents:
+  researcher:
+    capabilities:
+      web.search: allow
+      web.fetch:
+        effect: allow
+        constraints:
+          allowed_arguments: [url]
+          block_private_hosts: true
+          blocked_domains: [internal.example]
+      database.read: deny
+      agent.delegate:
+        effect: escalate
+        constraints:
+          allowed_targets: [writer]
+          allowed_actions: [docs.write]
+  writer:
+    capabilities:
+      docs.write: allow

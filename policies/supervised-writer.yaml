@@ -1,0 +1,16 @@
+# Template: an agent that drafts freely but needs a human to publish or email.
+contract_id: supervised-writer
+goal: Draft and, with approval, publish content
+max_steps: 100
+approvers: [editor]
+agents:
+  writer:
+    capabilities:
+      docs.write: allow
+      docs.publish: escalate
+      email.send:
+        effect: escalate
+        constraints:
+          allowed_arguments: [to, subject, body]
+          required_arguments: [to, subject]
+          max_calls: 5

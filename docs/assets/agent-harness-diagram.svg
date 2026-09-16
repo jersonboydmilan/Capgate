@@ -1,0 +1,182 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1160" viewBox="0 0 1600 1160" font-family="Inter, -apple-system, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="42%" r="75%">
+      <stop offset="0" stop-color="#101631"/>
+      <stop offset="1" stop-color="#070914"/>
+    </radialGradient>
+    <pattern id="dots" width="28" height="28" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="1" fill="#ffffff" opacity="0.045"/>
+    </pattern>
+    <linearGradient id="agent" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8FB4FF"/>
+      <stop offset="1" stop-color="#5E86F0"/>
+    </linearGradient>
+    <linearGradient id="exec" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7FE0B0"/>
+      <stop offset="1" stop-color="#3FB985"/>
+    </linearGradient>
+    <linearGradient id="harness" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1E2452"/>
+      <stop offset="1" stop-color="#141838"/>
+    </linearGradient>
+    <linearGradient id="harnessStroke" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8C9BFF" stop-opacity="0.55"/>
+      <stop offset="0.5" stop-color="#8C9BFF" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#7FE0B0" stop-opacity="0.35"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.075"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.03"/>
+    </linearGradient>
+    <linearGradient id="flowIn" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7EA2FF"/>
+      <stop offset="1" stop-color="#8C9BFF"/>
+    </linearGradient>
+    <linearGradient id="flowOut" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8C9BFF"/>
+      <stop offset="1" stop-color="#5FD39C"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="180%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity="0.45"/>
+    </filter>
+    <filter id="glowBlue" x="-50%" y="-80%" width="200%" height="260%">
+      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#5E86F0" flood-opacity="0.35"/>
+    </filter>
+    <filter id="glowGreen" x="-50%" y="-80%" width="200%" height="260%">
+      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#3FB985" flood-opacity="0.35"/>
+    </filter>
+    <marker id="headIn" viewBox="0 0 12 12" refX="6" refY="6" markerWidth="12" markerHeight="12" orient="auto">
+      <path d="M1.5 2.5 L6 9 L10.5 2.5" fill="none" stroke="#8C9BFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" transform="rotate(-90 6 6)"/>
+    </marker>
+    <marker id="headOut" viewBox="0 0 12 12" refX="6" refY="6" markerWidth="12" markerHeight="12" orient="auto">
+      <path d="M1.5 2.5 L6 9 L10.5 2.5" fill="none" stroke="#5FD39C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" transform="rotate(-90 6 6)"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1600" height="1160" fill="url(#bg)"/>
+  <rect width="1600" height="1160" fill="url(#dots)"/>
+
+  <!-- AGENT -->
+  <g filter="url(#glowBlue)">
+    <rect x="620" y="80" width="360" height="104" rx="22" fill="url(#agent)"/>
+  </g>
+  <rect x="620.5" y="80.5" width="359" height="103" rx="21.5" fill="none" stroke="#ffffff" stroke-opacity="0.35"/>
+  <text x="800" y="140" text-anchor="middle" font-size="30" font-weight="700" letter-spacing="6" fill="#0B1233">AGENT</text>
+  <text x="800" y="166" text-anchor="middle" font-size="13" font-weight="500" letter-spacing="1.5" fill="#0B1233" fill-opacity="0.6">AUTONOMOUS · UNTRUSTED</text>
+
+  <!-- Arrow: request -->
+  <line x1="800" y1="190" x2="800" y2="318" stroke="#8C9BFF" stroke-opacity="0.8" stroke-width="2" stroke-dasharray="2 7" stroke-linecap="round" marker-end="url(#headIn)"/>
+  <g>
+    <rect x="690" y="235" width="220" height="38" rx="19" fill="#0E1330" stroke="#8C9BFF" stroke-opacity="0.45"/>
+    <text x="800" y="260" text-anchor="middle" font-size="16" font-weight="500" fill="#C9D2FF">“I want to do X”</text>
+  </g>
+
+  <!-- HARNESS -->
+  <g filter="url(#shadow)">
+    <rect x="220" y="330" width="1160" height="500" rx="32" fill="url(#harness)"/>
+  </g>
+  <rect x="221" y="331" width="1158" height="498" rx="31" fill="none" stroke="url(#harnessStroke)" stroke-width="1.5"/>
+
+  <!-- header -->
+  <g transform="translate(800 400)">
+    <g transform="translate(-212 -26)" fill="none" stroke="#A9B4FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M16 3 L28 8 V17 C28 25 22.5 30 16 32 C9.5 30 4 25 4 17 V8 Z"/>
+      <path d="M11 17.5 L14.5 21 L21.5 14"/>
+    </g>
+    <text x="22" y="0" text-anchor="middle" font-size="32" font-weight="700" letter-spacing="7" fill="#FFFFFF">AGENT HARNESS</text>
+  </g>
+  <text x="800" y="432" text-anchor="middle" font-size="14" font-weight="500" letter-spacing="1.5" fill="#8E97C7">Every action is declared, checked, recorded — before it runs</text>
+  <line x1="300" y1="462" x2="1300" y2="462" stroke="#ffffff" stroke-opacity="0.07"/>
+
+  <!-- Cards: row 1 -->
+  <g font-size="19" font-weight="600" fill="#F2F4FF">
+    <!-- Contract -->
+    <g transform="translate(264 494)">
+      <rect width="250" height="140" rx="18" fill="url(#card)" stroke="#ffffff" stroke-opacity="0.09"/>
+      <rect x="22" y="22" width="40" height="40" rx="11" fill="#8C9BFF" fill-opacity="0.14" stroke="#8C9BFF" stroke-opacity="0.3"/>
+      <g transform="translate(30 30)" fill="none" stroke="#B4BEFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2 H6 A2 2 0 0 0 4 4 V20 A2 2 0 0 0 6 22 H18 A2 2 0 0 0 20 20 V8 Z"/><path d="M14 2 V8 H20"/><path d="M8 13 H16"/><path d="M8 17 H13"/>
+      </g>
+      <text x="22" y="94">Contract</text>
+      <text x="22" y="119" font-size="13.5" font-weight="400" fill="#8E97C7">Declared intent &amp; scope</text>
+    </g>
+    <!-- Capability -->
+    <g transform="translate(538 494)">
+      <rect width="250" height="140" rx="18" fill="url(#card)" stroke="#ffffff" stroke-opacity="0.09"/>
+      <rect x="22" y="22" width="40" height="40" rx="11" fill="#8C9BFF" fill-opacity="0.14" stroke="#8C9BFF" stroke-opacity="0.3"/>
+      <g transform="translate(30 30)" fill="none" stroke="#B4BEFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="8" cy="15" r="5"/><path d="M11.5 11.5 L21 2"/><path d="M17 6 L20 9"/><path d="M14.5 8.5 L17 11"/>
+      </g>
+      <text x="22" y="94">Capability</text>
+      <text x="22" y="119" font-size="13.5" font-weight="400" fill="#8E97C7">Least-privilege access</text>
+    </g>
+    <!-- Policy -->
+    <g transform="translate(812 494)">
+      <rect width="250" height="140" rx="18" fill="url(#card)" stroke="#ffffff" stroke-opacity="0.09"/>
+      <rect x="22" y="22" width="40" height="40" rx="11" fill="#8C9BFF" fill-opacity="0.14" stroke="#8C9BFF" stroke-opacity="0.3"/>
+      <g transform="translate(30 30)" fill="none" stroke="#B4BEFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3 V21"/><path d="M5 7 H19"/><path d="M5 7 L2 14 A3.5 3.5 0 0 0 8 14 Z"/><path d="M19 7 L16 14 A3.5 3.5 0 0 0 22 14 Z"/><path d="M8 21 H16"/>
+      </g>
+      <text x="22" y="94">Policy</text>
+      <text x="22" y="119" font-size="13.5" font-weight="400" fill="#8E97C7">Rules evaluated per action</text>
+    </g>
+    <!-- Interception -->
+    <g transform="translate(1086 494)">
+      <rect width="250" height="140" rx="18" fill="url(#card)" stroke="#ffffff" stroke-opacity="0.09"/>
+      <rect x="22" y="22" width="40" height="40" rx="11" fill="#8C9BFF" fill-opacity="0.14" stroke="#8C9BFF" stroke-opacity="0.3"/>
+      <g transform="translate(30 30)" fill="none" stroke="#B4BEFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 4 H21 L14 12.5 V19 L10 21 V12.5 Z"/>
+      </g>
+      <text x="22" y="94">Interception</text>
+      <text x="22" y="119" font-size="13.5" font-weight="400" fill="#8E97C7">Every call inspected</text>
+    </g>
+
+    <!-- Cards: row 2 -->
+    <!-- Delegation -->
+    <g transform="translate(401 658)">
+      <rect width="250" height="140" rx="18" fill="url(#card)" stroke="#ffffff" stroke-opacity="0.09"/>
+      <rect x="22" y="22" width="40" height="40" rx="11" fill="#8C9BFF" fill-opacity="0.14" stroke="#8C9BFF" stroke-opacity="0.3"/>
+      <g transform="translate(30 30)" fill="none" stroke="#B4BEFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="4.5" r="2.5"/><circle cx="5" cy="19.5" r="2.5"/><circle cx="19" cy="19.5" r="2.5"/><path d="M12 7 V12 M12 12 L5 17 M12 12 L19 17"/>
+      </g>
+      <text x="22" y="94">Delegation</text>
+      <text x="22" y="119" font-size="13.5" font-weight="400" fill="#8E97C7">Bounded sub-agent authority</text>
+    </g>
+    <!-- Audit -->
+    <g transform="translate(675 658)">
+      <rect width="250" height="140" rx="18" fill="url(#card)" stroke="#ffffff" stroke-opacity="0.09"/>
+      <rect x="22" y="22" width="40" height="40" rx="11" fill="#8C9BFF" fill-opacity="0.14" stroke="#8C9BFF" stroke-opacity="0.3"/>
+      <g transform="translate(30 30)" fill="none" stroke="#B4BEFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="10.5" cy="10.5" r="7"/><path d="M15.5 15.5 L21 21"/><path d="M7.5 10.5 L9.8 12.8 L13.8 8.5"/>
+      </g>
+      <text x="22" y="94">Audit</text>
+      <text x="22" y="119" font-size="13.5" font-weight="400" fill="#8E97C7">Tamper-evident record</text>
+    </g>
+    <!-- Escalation -->
+    <g transform="translate(949 658)">
+      <rect width="250" height="140" rx="18" fill="url(#card)" stroke="#ffffff" stroke-opacity="0.09"/>
+      <rect x="22" y="22" width="40" height="40" rx="11" fill="#8C9BFF" fill-opacity="0.14" stroke="#8C9BFF" stroke-opacity="0.3"/>
+      <g transform="translate(30 30)" fill="none" stroke="#B4BEFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 21 V4"/><path d="M5 11 L12 4 L19 11"/><path d="M4 21 H20"/>
+      </g>
+      <text x="22" y="94">Escalation</text>
+      <text x="22" y="119" font-size="13.5" font-weight="400" fill="#8E97C7">Human approval on risk</text>
+    </g>
+  </g>
+
+  <!-- Arrow: grant -->
+  <line x1="800" y1="836" x2="800" y2="964" stroke="#5FD39C" stroke-opacity="0.8" stroke-width="2" stroke-dasharray="2 7" stroke-linecap="round" marker-end="url(#headOut)"/>
+  <g>
+    <rect x="690" y="881" width="220" height="38" rx="19" fill="#0C1826" stroke="#5FD39C" stroke-opacity="0.45"/>
+    <text x="800" y="906" text-anchor="middle" font-size="16" font-weight="500" fill="#BDEFD6">“You may do X”</text>
+  </g>
+
+  <!-- EXECUTE -->
+  <g filter="url(#glowGreen)">
+    <rect x="620" y="976" width="360" height="104" rx="22" fill="url(#exec)"/>
+  </g>
+  <rect x="620.5" y="976.5" width="359" height="103" rx="21.5" fill="none" stroke="#ffffff" stroke-opacity="0.35"/>
+  <text x="800" y="1036" text-anchor="middle" font-size="30" font-weight="700" letter-spacing="6" fill="#06261A">EXECUTE</text>
+  <text x="800" y="1062" text-anchor="middle" font-size="13" font-weight="500" letter-spacing="1.5" fill="#06261A" fill-opacity="0.6">AUTHORIZED · SCOPED</text>
+</svg>

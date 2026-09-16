@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agent-harness"
+version = "0.1.0"
+description = "Authority management for autonomous software agents: the agent proposes, the harness authorizes, the executor acts."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = ["PyYAML>=6.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+harness = "harness.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/harness", "sdk/python/harness_client"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib -q -m 'not docker'"
+markers = ["docker: builds and attacks the isolated runtime (slow; run with -m docker)"]
+pythonpath = ["src", "sdk/python", "tests"]
