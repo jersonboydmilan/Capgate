@@ -12,8 +12,7 @@ from __future__ import annotations
 
 import threading
 import uuid
-from collections import defaultdict, deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Any, Iterable, Mapping
@@ -25,6 +24,7 @@ from .executor import ExecutionGrant, ExecutionRefused, ExecutionResult, Executo
 from .interceptor import Interceptor
 from .policy import Usage, evaluate
 from .request import DELEGATE_ACTION, MESSAGE_ACTION, ActionRequest, DelegationRequest, MalformedRequest, MessageRequest
+from .state import MemoryStateStore, StateStore
 from .timeutil import Clock, utc_now
 
 
@@ -112,12 +112,30 @@ class Message:
     decision_id: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class PendingApproval:
     approval_id: str
     decision: Decision
     usage: Usage
     created_at: datetime
+
+    def to_record(self) -> dict[str, Any]:
+        return {
+            "approval_id": self.approval_id,
+            "status": "pending",
+            "decision": self.decision.to_record(),
+            "usage": {"contract_steps": self.usage.contract_steps, "action_calls": self.usage.action_calls},
+            "created_at": self.created_at.isoformat(),
+        }
+
+    @classmethod
+    def from_record(cls, record: dict[str, Any]) -> "PendingApproval":
+        return cls(
+            record["approval_id"],
+            Decision.from_record(record["decision"]),
+            Usage(**record["usage"]),
+            datetime.fromisoformat(record["created_at"]),
+        )
 
 
 class Harness:
@@ -131,25 +149,29 @@ class Harness:
         clock: Clock = utc_now,
         signing_key: bytes | None = None,
         grant_ttl_seconds: float = 60.0,
+        state: StateStore | None = None,
     ) -> None:
+        """`state` persists budgets, used grants, approvals and messages (see harness.state).
+
+        Grants survive a restart only if `signing_key` is also stable.
+        """
         if isinstance(contracts, TaskContract):
             contracts = [contracts]
         self.mode = Mode(mode)
         self.audit = audit if audit is not None else AuditLog()
         self._clock = clock
-        self._interceptor = Interceptor(contracts, self.audit, clock, simulate=self.mode is Mode.SIMULATE)
+        self.state = state if state is not None else MemoryStateStore()
+        self._interceptor = Interceptor(contracts, self.audit, clock, simulate=self.mode is Mode.SIMULATE, state=self.state)
         self._grant_ttl = grant_ttl_seconds
         self._signer = GrantSigner(signing_key)
         self._lock = threading.RLock()
-        self._mailboxes: dict[str, deque[Message]] = defaultdict(deque)
-        self._approvals: dict[str, PendingApproval] = {}
 
         tool_map = dict(tools or {})
         reserved = {MESSAGE_ACTION, DELEGATE_ACTION} & set(tool_map)
         if reserved:
             raise ValueError(f"{sorted(reserved)} are handled by the harness and cannot be registered as tools")
         tool_map[MESSAGE_ACTION] = self._deliver
-        self._executor = Executor(self._signer, tool_map, self.audit, clock=lambda: self._clock().timestamp())
+        self._executor = Executor(self._signer, tool_map, self.audit, clock=lambda: self._clock().timestamp(), state=self.state)
 
     # -- introspection ---------------------------------------------------
 
@@ -226,17 +248,11 @@ class Harness:
         return result
 
     def receive(self, agent: str) -> list[Message]:
-        with self._lock:
-            box = self._mailboxes.get(agent)
-            messages = list(box) if box else []
-            if box:
-                box.clear()
-            return messages
+        return [Message(**m) for m in self.state.drain_messages(agent)]
 
     def _deliver(self, arguments: dict[str, Any], request: ActionRequest, decision_id: str) -> dict[str, Any]:
         message = Message(str(uuid.uuid4()), request.agent_id, arguments["to"], arguments.get("body"), decision_id)
-        with self._lock:
-            self._mailboxes[message.recipient].append(message)
+        self.state.push_message(message.recipient, message.__dict__)
         return {"message_id": message.message_id, "delivered_to": message.recipient}
 
     _deliver.__harness_context__ = True  # type: ignore[attr-defined]
@@ -276,8 +292,18 @@ class Harness:
     # -- escalation ------------------------------------------------------
 
     def pending_approvals(self) -> list[PendingApproval]:
-        with self._lock:
-            return list(self._approvals.values())
+        return [PendingApproval.from_record(r) for r in self.state.pending_approvals()]
+
+    def approval_record(self, approval_id: str) -> dict[str, Any] | None:
+        """Persisted status of an escalation: pending or decided (with verdict and resulting decision)."""
+        return self.state.get_approval(approval_id)
+
+    def annotate_approval(self, approval_id: str, **fields: Any) -> None:
+        with self.state.transaction():
+            record = self.state.get_approval(approval_id)
+            if record is not None:
+                record.update(fields)
+                self.state.put_approval(approval_id, record)
 
     def approve(self, approval_id: str, approver: str, note: str = "") -> AuthorizationResult | DelegationResult:
         pending = self._take_approval(approval_id, approver, "approve")
@@ -306,6 +332,7 @@ class Harness:
             verdict="granted" if decision.allowed else "superseded",
             note=note,
         )
+        self.annotate_approval(approval_id, verdict="granted" if decision.allowed else "superseded", resulting_decision_id=decision.decision_id)
         result = self._result_for(decision, pending.usage)
         if request.action == DELEGATE_ACTION and result.allowed:
             args = request.arguments_copy()
@@ -318,6 +345,7 @@ class Harness:
         request = pending.decision.request
         evaluation = PolicyEvaluation(DecisionType.DENY, ReasonCode.APPROVAL_REJECTED, f"rejected by {approver}" + (f": {note}" if note else ""), capability=request.action, rule="approval:rejected")
         decision = self._interceptor.record(request, evaluation, delegated_by=pending.decision.delegated_by, parent_decision_id=pending.decision.decision_id)
+        self.annotate_approval(approval_id, verdict="rejected", resulting_decision_id=decision.decision_id)
         self.audit.record(
             "approval",
             approval_id=approval_id,
@@ -332,8 +360,9 @@ class Harness:
         return AuthorizationResult(decision)
 
     def _take_approval(self, approval_id: str, approver: str, verb: str) -> PendingApproval:
-        with self._lock:
-            pending = self._approvals.get(approval_id)
+        with self._lock, self.state.transaction():
+            record = self.state.get_approval(approval_id)
+            pending = PendingApproval.from_record(record) if record and record["status"] == "pending" else None
             if pending is None:
                 self.audit.record("approval_refused", approval_id=approval_id, approver=approver, reason_code="UNKNOWN_APPROVAL", detail=f"{verb}: no pending approval")
                 raise ApprovalError(f"no pending approval {approval_id!r}")
@@ -348,15 +377,16 @@ class Harness:
                     detail=f"{approver!r} is not an approver for {pending.decision.contract_id!r}",
                 )
                 raise ApprovalError(f"{approver!r} may not {verb} requests under {pending.decision.contract_id!r}")
-            return self._approvals.pop(approval_id)
+            record.update(status="decided", verb=verb, approver=approver)
+            self.state.put_approval(approval_id, record)  # single use: a decided approval can never be taken again
+            return pending
 
     # -- internals -------------------------------------------------------
 
     def _result_for(self, decision: Decision, usage: Usage) -> AuthorizationResult:
         if decision.escalated:
             approval_id = str(uuid.uuid4())
-            with self._lock:
-                self._approvals[approval_id] = PendingApproval(approval_id, decision, usage, self._clock())
+            self.state.put_approval(approval_id, PendingApproval(approval_id, decision, usage, self._clock()).to_record())
             return AuthorizationResult(decision, approval_id=approval_id)
         if decision.allowed and self.mode is Mode.ENFORCE:
             return AuthorizationResult(decision, grant=self._mint_grant(decision))

@@ -123,6 +123,7 @@ def _audit(args) -> int:
 
 def _serve(args) -> int:
     from .server import HarnessServer
+    from .state import SQLiteStateStore
     from .tools import build_tools
 
     path = Path(args.config)
@@ -141,6 +142,7 @@ def _serve(args) -> int:
         tools=build_tools(cfg.get("tools"), base=path.parent),
         audit=AuditLog(path.parent / audit_path if audit_path else None, fsync=True),
         signing_key=signing_key,
+        state=SQLiteStateStore(path.parent / cfg["state"]) if cfg.get("state") else None,
     )
     listen = cfg.get("listen") or {}
     server = HarnessServer(harness, tokens("agents"), tokens("approvers"), host=listen.get("host", "127.0.0.1"), port=int(listen.get("port", 8700)))

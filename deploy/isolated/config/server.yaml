@@ -2,6 +2,7 @@
 contracts: [contracts.yaml]
 listen: {host: 0.0.0.0, port: 8700}
 audit: /data/audit.jsonl
+state: /data/state.db
 signing_key_file: /run/secrets/signing_key
 agents:
   researcher: {token_file: /run/secrets/researcher_token}

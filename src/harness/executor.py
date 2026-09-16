@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import hmac
 import secrets
-import threading
 import time
 from dataclasses import dataclass
 from hashlib import sha256
@@ -23,6 +22,7 @@ from typing import Any, Callable, Mapping, Protocol
 
 from .audit import AuditLog
 from .request import ActionRequest, canonical_json
+from .state import MemoryStateStore, StateStore
 
 
 class ExecutionRefused(PermissionError):
@@ -112,13 +112,13 @@ class Executor:
         audit: AuditLog,
         *,
         clock: Callable[[], float] = time.time,
+        state: StateStore | None = None,
     ) -> None:
         self._signer = signer
         self._tools = dict(tools or {})
         self._audit = audit
         self._clock = clock
-        self._used: set[str] = set()
-        self._lock = threading.Lock()
+        self._state = state if state is not None else MemoryStateStore()
 
     def has_tool(self, action: str) -> bool:
         return action in self._tools
@@ -171,8 +171,6 @@ class Executor:
         tool = self._tools.get(request.action)
         if tool is None:
             raise ExecutionRefused("NO_TOOL_REGISTERED", f"no executor tool for {request.action!r}")
-        with self._lock:
-            if grant.decision_id in self._used:
-                raise ExecutionRefused("GRANT_ALREADY_USED", "grants are single-use")
-            self._used.add(grant.decision_id)
+        if not self._state.claim_grant(grant.decision_id, grant.expires_at):
+            raise ExecutionRefused("GRANT_ALREADY_USED", "grants are single-use")
         return tool
