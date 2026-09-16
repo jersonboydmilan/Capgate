@@ -8,12 +8,17 @@ executor's credential, and agents never receive that credential.
 
 from __future__ import annotations
 
+import http.client
+import ipaddress
 import json
+import socket
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
+from urllib.parse import urlsplit
 
+from .netaddr import InvalidHost, ip_literal, is_public_ip, normalize_hostname
 from .secretsource import read_secret
 
 
@@ -51,24 +56,108 @@ class ControlledEndpointTool:
             raise RuntimeError(f"tool endpoint returned HTTP {exc.code}") from None
 
 
-class HttpFetchTool:
-    """GETs a URL. Pair with allowed_domains / block_private_hosts constraints.
+class DestinationRefused(PermissionError):
+    pass
 
-    Note: host checks happen at policy time on the URL string; DNS rebinding
-    and redirects to private addresses are not prevented here. Deploy with an
-    egress proxy if the fetched hosts are untrusted (see docs/threat-model.md).
+
+def _system_resolver(host: str, port: int) -> list[str]:
+    return list(dict.fromkeys(info[4][0] for info in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)))
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, host: str, port: int, pinned_ip: str, **kwargs: Any) -> None:
+        super().__init__(host, port, **kwargs)
+        self._pinned_ip = pinned_ip
+
+    def connect(self) -> None:
+        self.sock = socket.create_connection((self._pinned_ip, self.port), self.timeout)
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, host: str, port: int, pinned_ip: str, **kwargs: Any) -> None:
+        super().__init__(host, port, **kwargs)
+        self._pinned_ip = pinned_ip
+
+    def connect(self) -> None:
+        sock = socket.create_connection((self._pinned_ip, self.port), self.timeout)
+        # Certificate verification and SNI use the hostname; the TCP connection uses the vetted IP.
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+
+
+class HttpFetchTool:
+    """GETs a URL with destination checks that hold at connection time.
+
+    Policy constraints (`allowed_domains`, `block_private_hosts`) judge the URL
+    text. This tool closes the gap between that text and the socket:
+
+    * resolves the host once and refuses if **any** address is non-public
+      (loopback, private, link-local, metadata, IPv4-mapped/6to4/Teredo to those);
+    * connects to the vetted address, so a second DNS answer (rebinding) is never used;
+    * refuses URLs with embedded credentials and ports outside `allowed_ports`;
+    * does **not** follow redirects: it returns the `Location`, and following it
+      is a new `web.fetch` proposal that policy evaluates again.
     """
 
-    def __init__(self, *, max_bytes: int = 256_000, timeout: float = 10.0) -> None:
+    def __init__(
+        self,
+        *,
+        max_bytes: int = 256_000,
+        timeout: float = 10.0,
+        allow_private: bool = False,
+        allowed_ports: tuple[int, ...] | None = (80, 443),
+        resolver: Callable[[str, int], list[str]] = _system_resolver,
+    ) -> None:
         self.max_bytes = max_bytes
         self.timeout = timeout
+        self.allow_private = allow_private
+        self.allowed_ports = allowed_ports
+        self._resolve = resolver
 
     def __call__(self, arguments: dict[str, Any]) -> Any:
         url = arguments["url"]
-        req = urllib.request.Request(url, headers={"User-Agent": "agent-harness/0.1"})
-        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-            body = resp.read(self.max_bytes)
-            return {"status": resp.status, "url": resp.geturl(), "body": body.decode("utf-8", errors="replace")}
+        parts = urlsplit(url)
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            raise DestinationRefused("only http(s) URLs with a host are fetched")
+        if parts.username is not None or parts.password is not None:
+            raise DestinationRefused("URLs with embedded credentials are refused")
+        try:
+            host = normalize_hostname(parts.hostname)
+        except InvalidHost as exc:
+            raise DestinationRefused(str(exc)) from None
+        port = parts.port or (443 if parts.scheme == "https" else 80)
+        if self.allowed_ports is not None and port not in self.allowed_ports:
+            raise DestinationRefused(f"port {port} is not allowed")
+
+        literal = ip_literal(host)
+        addresses = [str(literal)] if literal is not None else self._resolve(host, port)
+        if not addresses:
+            raise DestinationRefused(f"{host!r} did not resolve")
+        if not self.allow_private:
+            for address in addresses:
+                if not is_public_ip(ipaddress.ip_address(address.split("%")[0])):
+                    raise DestinationRefused(f"{host!r} resolves to non-public address {address}")
+        pinned = addresses[0]
+
+        conn_cls = _PinnedHTTPSConnection if parts.scheme == "https" else _PinnedHTTPConnection
+        conn = conn_cls(host, port, pinned, timeout=self.timeout)
+        path = parts.path or "/"
+        if parts.query:
+            path += "?" + parts.query
+        try:
+            conn.request("GET", path, headers={"User-Agent": "agent-harness/0.1", "Accept-Encoding": "identity"})
+            resp = conn.getresponse()
+            if 300 <= resp.status < 400:
+                return {"status": resp.status, "url": url, "resolved_ip": pinned, "redirect_to": resp.getheader("Location"), "followed": False, "body": ""}
+            body = resp.read(self.max_bytes + 1)
+            return {
+                "status": resp.status,
+                "url": url,
+                "resolved_ip": pinned,
+                "body": body[: self.max_bytes].decode("utf-8", errors="replace"),
+                "truncated": len(body) > self.max_bytes,
+            }
+        finally:
+            conn.close()
 
 
 def build_tools(spec: Mapping[str, Any] | None, *, base: Path | None = None) -> dict[str, Any]:

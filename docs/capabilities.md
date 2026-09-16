@@ -27,7 +27,11 @@ There are no wildcards.
 | `allowed_actions: [..]` | `action` argument is one of these | `DELEGATED_ACTION_NOT_ALLOWED` |
 | `max_calls: N` | at most N allowed invocations by this agent | `BUDGET_EXHAUSTED` |
 
-Any URL constraint also requires the URL to be `http(s)` with a host.
+Any URL constraint also requires an `http(s)` URL with a plain ASCII hostname or
+canonical IP, and rejects embedded credentials, backslashes, whitespace, control
+characters and non-canonical IP spellings. Policy never performs DNS; the
+`http_fetch` tool re-checks the resolved addresses at connect time and pins the
+connection to them.
 
 ## Harness-owned actions
 

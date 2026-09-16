@@ -6,7 +6,7 @@ wildcards and no inheritance: an action that is not named is not permitted.
 
 from __future__ import annotations
 
-import ipaddress
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -15,6 +15,7 @@ from typing import Any, Mapping
 from urllib.parse import urlsplit
 
 from .decision import ReasonCode
+from .netaddr import InvalidHost, ip_literal, is_private_host, normalize_hostname
 from .request import ACTION_NAME, DELEGATE_ACTION, MESSAGE_ACTION, ActionRequest
 from .timeutil import parse_timestamp
 
@@ -46,7 +47,6 @@ CONSTRAINTS: dict[str, str] = {
 
 _LIST_CONSTRAINTS = {"allowed_arguments", "required_arguments", "allowed_domains", "blocked_domains", "allowed_targets", "allowed_actions"}
 _INT_CONSTRAINTS = {"max_argument_length", "max_calls"}
-_PRIVATE_SUFFIXES = (".localhost", ".local", ".internal", ".intranet", ".lan", ".corp", ".home.arpa")
 
 
 @dataclass(frozen=True)
@@ -192,43 +192,41 @@ def _longest_string(value: Any) -> int:
     return 0
 
 
+_URL_FORBIDDEN_CHARS = re.compile(r"[\\\s\x00-\x1f\x7f]")
+
+
 def _check_url(c: Mapping[str, Any], args: Mapping[str, Any]) -> ConstraintViolation | None:
     name = c.get("url_argument", "url")
     url = args.get(name)
     rule = "constraint:url"
+    deny = lambda detail, r=rule: ConstraintViolation(ReasonCode.DOMAIN_NOT_ALLOWED, r, detail)
     if not isinstance(url, str):
-        return ConstraintViolation(ReasonCode.DOMAIN_NOT_ALLOWED, rule, f"argument {name!r} must be a URL string")
+        return deny(f"argument {name!r} must be a URL string")
+    if _URL_FORBIDDEN_CHARS.search(url):
+        # Backslashes, whitespace and control characters are parsed differently by different HTTP clients.
+        return deny("URL contains backslashes, whitespace or control characters")
     try:
-        parts = urlsplit(url.strip())
-        host = (parts.hostname or "").lower().rstrip(".")
+        parts = urlsplit(url)
+        raw_host = parts.hostname or ""
+        parts.port  # raises on a malformed port
     except ValueError:
-        return ConstraintViolation(ReasonCode.DOMAIN_NOT_ALLOWED, rule, "unparseable URL")
-    if parts.scheme not in ("http", "https") or not host:
-        return ConstraintViolation(ReasonCode.DOMAIN_NOT_ALLOWED, rule, "URL must be http(s) with a host")
+        return deny("unparseable URL")
+    if parts.scheme not in ("http", "https") or not raw_host:
+        return deny("URL must be http(s) with a host")
+    if parts.username is not None or parts.password is not None or "@" in parts.netloc:
+        return deny("URLs with embedded credentials are not allowed")
+    try:
+        host = normalize_hostname(raw_host)
+    except InvalidHost as exc:
+        return deny(str(exc))
 
     def matches(domains: tuple[str, ...]) -> bool:
-        return any(host == d or host.endswith("." + d) for d in domains)
+        return ip_literal(host) is None and any(host == d or host.endswith("." + d) for d in domains)
 
     if matches(c.get("blocked_domains", ())):
-        return ConstraintViolation(ReasonCode.DOMAIN_NOT_ALLOWED, "constraint:blocked_domains", f"host {host!r} is blocked")
-    if c.get("block_private_hosts") and _is_private_host(host):
-        return ConstraintViolation(ReasonCode.DOMAIN_NOT_ALLOWED, "constraint:block_private_hosts", f"host {host!r} is private or internal")
+        return deny(f"host {host!r} is blocked", "constraint:blocked_domains")
+    if c.get("block_private_hosts") and is_private_host(host):
+        return deny(f"host {host!r} is private or internal", "constraint:block_private_hosts")
     if "allowed_domains" in c and not matches(c["allowed_domains"]):
-        return ConstraintViolation(ReasonCode.DOMAIN_NOT_ALLOWED, "constraint:allowed_domains", f"host {host!r} not in allowed_domains")
+        return deny(f"host {host!r} not in allowed_domains", "constraint:allowed_domains")
     return None
-
-
-def _is_private_host(host: str) -> bool:
-    if host == "localhost" or host.endswith(_PRIVATE_SUFFIXES) or "." not in host.strip("[]"):
-        # Single-label hosts ("intranet", "db") resolve via local search domains.
-        try:
-            ipaddress.ip_address(host.strip("[]"))
-        except ValueError:
-            if not host.isdigit():
-                return True
-    candidate = host.strip("[]")
-    try:
-        ip = ipaddress.ip_address(int(candidate)) if candidate.isdigit() else ipaddress.ip_address(candidate)
-    except ValueError:
-        return False
-    return not ip.is_global
