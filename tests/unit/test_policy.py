@@ -47,7 +47,7 @@ def test_deterministic():
 
 def test_escalate_still_subject_to_constraints():
     contract = TaskContract.from_dict({
-        "contract_id": "c", "goal": "g",
+        "contract_id": "c", "goal": "g", "max_steps": 50,
         "agents": {"researcher": {"capabilities": {"payments.send": {"effect": "escalate", "constraints": {"allowed_arguments": ["amount"]}}}}},
     })
     result = decide("payments.send", {"amount": 5, "to_account": "attacker"}, contract=contract)

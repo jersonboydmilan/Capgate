@@ -196,7 +196,9 @@ def _serve(args) -> int:
     listen = cfg.get("listen") or {}
     host = args.host or listen.get("host", "127.0.0.1")
     port = args.port or int(listen.get("port", 8700))
-    server = HarnessServer(harness, authority, host=host, port=port)
+    from .ratelimit import RateLimitConfig
+
+    server = HarnessServer(harness, authority, host=host, port=port, rate_limit=RateLimitConfig.from_mapping(cfg.get("rate_limit")))
     print(f"agent harness listening on {server.url} ({len(contracts)} contracts)", flush=True)
     try:
         server.server.serve_forever()

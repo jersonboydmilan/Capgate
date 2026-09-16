@@ -75,14 +75,14 @@ def test_delegation_chain_does_not_launder_authority():
     """A → B → C: C still acts only under C's contract, B only under B's."""
     from harness import TaskContract
 
-    a = TaskContract.from_dict({"contract_id": "ca", "goal": "g", "agents": {"a": {"capabilities": {
+    a = TaskContract.from_dict({"contract_id": "ca", "goal": "g", "max_steps": 50, "agents": {"a": {"capabilities": {
         "database.write": "allow",
         "agent.delegate": {"effect": "allow", "constraints": {"allowed_targets": ["b"], "allowed_actions": ["agent.delegate", "database.write"]}},
     }}}})
-    b = TaskContract.from_dict({"contract_id": "cb", "goal": "g", "agents": {"b": {"capabilities": {
+    b = TaskContract.from_dict({"contract_id": "cb", "goal": "g", "max_steps": 50, "agents": {"b": {"capabilities": {
         "agent.delegate": {"effect": "allow", "constraints": {"allowed_targets": ["c"], "allowed_actions": ["database.write"]}},
     }}}})
-    c = TaskContract.from_dict({"contract_id": "cc", "goal": "g", "agents": {"c": {"capabilities": {"web.search": "allow"}}}})
+    c = TaskContract.from_dict({"contract_id": "cc", "goal": "g", "max_steps": 50, "agents": {"c": {"capabilities": {"web.search": "allow"}}}})
     harness = make_harness([a, b, c])
     hop = harness.delegate("b", "c", "database.write", {})
     assert hop.blocked_at == "recipient" and hop.action.decision.contract_id == "cc"

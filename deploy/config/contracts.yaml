@@ -1,5 +1,6 @@
 contract_id: research-v1
 goal: Research using web search; email requires approval
+max_steps: 100
 approvers: [alice]
 agents:
   researcher:
@@ -9,6 +10,7 @@ agents:
 ---
 contract_id: admin-v1
 goal: Database maintenance
+max_steps: 100
 agents:
   db-admin:
     capabilities:

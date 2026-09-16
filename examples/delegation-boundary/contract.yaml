@@ -2,6 +2,7 @@
 # but whether B may *do* it is decided by B's contract alone.
 contract_id: contract-a
 goal: Coordinate research and hand off follow-up work
+max_steps: 100
 agents:
   agent-a:
     capabilities:
@@ -21,6 +22,7 @@ agents:
 ---
 contract_id: contract-b
 goal: Answer research questions
+max_steps: 100
 agents:
   agent-b:
     capabilities:

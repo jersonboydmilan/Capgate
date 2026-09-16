@@ -8,7 +8,7 @@ escalations.
 contract_id: research-v1        # required; letters, digits, _ . : -
 version: "3"                    # optional, recorded in the hash
 goal: Research X                # required
-max_steps: 20                   # optional; proposals (incl. denied) across all agents
+max_steps: 20                   # required; proposals (incl. denied) across all agents
 expires_at: 2026-12-31T23:59:59Z   # optional; timezone required
 approvers: [alice, bob]         # optional; principals allowed to decide escalations
 agents:
@@ -35,6 +35,9 @@ max_steps: 20
 ```
 
 ## Rules
+
+- **A budget is mandatory.** `max_steps` must be a positive integer. It is what
+  bounds a compromised agent's probing, escalation spam and message floods.
 
 - **Strict schema.** Unknown fields at any level are errors.
 - **One contract per agent.** An agent id may appear in only one loaded contract.

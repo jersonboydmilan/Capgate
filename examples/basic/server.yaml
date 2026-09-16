@@ -11,3 +11,9 @@ identity:
 tools:
   web.search: {type: echo}
   notes.write: {type: echo}
+rate_limit:                           # per process; defaults shown
+  client_rate: 20                     # requests/second per client address (checked before token verification)
+  client_burst: 100
+  principal_rate: 10                  # requests/second per agent or approver
+  principal_burst: 60
+  auth_failure_audit_per_minute: 20   # further failures are counted, not recorded individually

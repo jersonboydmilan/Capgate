@@ -58,8 +58,8 @@ def test_approval_is_single_use():
 
 
 def test_approver_of_one_contract_cannot_approve_another():
-    a = TaskContract.from_dict({"contract_id": "a", "goal": "g", "approvers": ["alice"], "agents": {"x": {"capabilities": {"prod.deploy": "escalate"}}}})
-    b = TaskContract.from_dict({"contract_id": "b", "goal": "g", "approvers": ["bob"], "agents": {"y": {"capabilities": {"prod.deploy": "escalate"}}}})
+    a = TaskContract.from_dict({"contract_id": "a", "goal": "g", "max_steps": 50, "approvers": ["alice"], "agents": {"x": {"capabilities": {"prod.deploy": "escalate"}}}})
+    b = TaskContract.from_dict({"contract_id": "b", "goal": "g", "max_steps": 50, "approvers": ["bob"], "agents": {"y": {"capabilities": {"prod.deploy": "escalate"}}}})
     harness = make_harness([a, b])
     pending = harness.authorize("x", "prod.deploy")
     with pytest.raises(ApprovalError):
@@ -67,10 +67,10 @@ def test_approver_of_one_contract_cannot_approve_another():
 
 
 def test_escalated_delegation_continues_to_recipient_evaluation_after_approval():
-    a = TaskContract.from_dict({"contract_id": "a", "goal": "g", "approvers": ["alice"], "agents": {"lead": {"capabilities": {
+    a = TaskContract.from_dict({"contract_id": "a", "goal": "g", "max_steps": 50, "approvers": ["alice"], "agents": {"lead": {"capabilities": {
         "agent.delegate": {"effect": "escalate", "constraints": {"allowed_targets": ["worker"], "allowed_actions": ["database.write"]}},
     }}}})
-    b = TaskContract.from_dict({"contract_id": "b", "goal": "g", "agents": {"worker": {"capabilities": {"web.search": "allow"}}}})
+    b = TaskContract.from_dict({"contract_id": "b", "goal": "g", "max_steps": 50, "agents": {"worker": {"capabilities": {"web.search": "allow"}}}})
     harness = make_harness([a, b])
     first = harness.delegate("lead", "worker", "database.write", {})
     assert first.delegation.escalated
