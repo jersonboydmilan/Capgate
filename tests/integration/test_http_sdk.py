@@ -128,3 +128,27 @@ def test_client_accepts_a_token_provider():
         assert len(issued) == 2
     finally:
         server.stop()
+
+
+@pytest.mark.parametrize("length_header, body", [("-1", b'{"action":"web.search"}'), ("abc", b"{}"), ("100", b"{")])
+def test_malformed_or_stalled_bodies_do_not_hold_the_server(monkeypatch, length_header, body):
+    import socket
+    import time
+
+    import harness.server as server_module
+
+    monkeypatch.setattr(server_module, "REQUEST_TIMEOUT_SECONDS", 1.0)
+    harness = Harness(research_contract(), tools={"web.search": SpyTool()}, audit=AuditLog())
+    authority = TokenAuthority(Keyring.generate())
+    server = HarnessServer(harness, authority).start()
+    try:
+        host, port = server.server.server_address
+        started = time.time()
+        with socket.create_connection((host, port), timeout=5) as s:
+            token = authority.issue("researcher", "agent", 60)
+            s.sendall(f"POST /v1/actions HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {token}\r\nContent-Length: {length_header}\r\n\r\n".encode() + body)
+            reply = s.recv(4096)
+        assert reply.startswith(b"HTTP/1.0 400"), reply[:80]
+        assert time.time() - started < 4
+    finally:
+        server.stop()

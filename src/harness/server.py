@@ -29,6 +29,7 @@ from .executor import ExecutionRefused
 from .identity import TokenAuthority, TokenError
 
 MAX_BODY = 1_000_000
+REQUEST_TIMEOUT_SECONDS = 10.0
 
 
 class HarnessServer:
@@ -179,6 +180,7 @@ class HarnessServer:
 def _make_handler(app: HarnessServer):
     class Handler(BaseHTTPRequestHandler):
         server_version = "agent-harness"
+        timeout = REQUEST_TIMEOUT_SECONDS  # per-socket-operation timeout: slow or stalled clients cannot hold a thread
 
         def log_message(self, *args):
             pass
@@ -192,14 +194,20 @@ def _make_handler(app: HarnessServer):
             self.wfile.write(data)
 
         def _body(self) -> Mapping[str, Any] | None:
-            try:
-                length = int(self.headers.get("Content-Length") or 0)
-            except ValueError:
-                return None
+            raw_length = self.headers.get("Content-Length")
+            if raw_length is None or not raw_length.strip().isdigit():
+                return None  # missing, negative or non-numeric: never "read until EOF"
+            length = int(raw_length)
             if length > MAX_BODY:
                 return None
             try:
-                data = json.loads(self.rfile.read(length) or b"{}")
+                raw = self.rfile.read(length)
+            except OSError:  # includes socket timeout
+                return None
+            if len(raw) != length:
+                return None
+            try:
+                data = json.loads(raw or b"{}")
             except (json.JSONDecodeError, UnicodeDecodeError):
                 return None
             return data if isinstance(data, dict) else None
@@ -237,7 +245,8 @@ def _make_handler(app: HarnessServer):
                 return
             body = self._body()
             if body is None:
-                self._send(400, {"error": "request body must be a JSON object under 1MB"})
+                self.close_connection = True
+                self._send(400, {"error": "request body must be a JSON object under 1MB with a valid Content-Length"})
                 return
             try:
                 if self.path == "/v1/actions" and agent:

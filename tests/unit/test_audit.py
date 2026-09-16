@@ -45,3 +45,15 @@ def test_write_failure_propagates(tmp_path):
     log = AuditLog(tmp_path / "missing-dir" / "audit.jsonl")
     with pytest.raises(OSError):
         log.record("decision", decision_id="x")
+
+
+def test_file_backed_log_does_not_accumulate_records_in_memory(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    log = AuditLog(path)
+    for i in range(2000):
+        log.record("decision", decision_id=str(i))
+    assert log._memory == [] and len(log) == 2000
+    assert log.query(decision_id="1999")[0]["sequence"] == 1999
+    reopened = AuditLog(path)
+    assert len(reopened) == 2000 and reopened.record("decision", decision_id="x")["sequence"] == 2000
+    assert reopened.verify()
