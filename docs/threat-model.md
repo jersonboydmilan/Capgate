@@ -125,6 +125,10 @@ compromised agent.
   database write lock). Without `state:`, state is in memory. There is no
   multi-host replication. Grants survive a restart only with a stable
   `signing_key_file`.
+- **The HTTP boundary has no rate limiting.** Stalled and malformed requests
+  are bounded (10s socket timeout, strict `Content-Length`), but a principal —
+  or an unauthenticated client that can reach the port — can still send many
+  requests and grow the audit trail. Put a rate-limiting proxy in front for now.
 - **Audit tamper-evidence is local.** The hash chain detects edits within the
   file. Ship records to append-only storage to protect against deletion.
 - **Tokens are bearer tokens.** They are short-lived (verifier-capped TTL),

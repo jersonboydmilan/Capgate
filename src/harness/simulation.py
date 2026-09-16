@@ -54,33 +54,65 @@ def load_task(path: str | Path) -> TaskFile:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
         raise TaskError(f"{path}: invalid YAML: {exc}") from None
+    return task_from_mapping(data, base_dir=path.parent, name=path.stem, label=str(path))
+
+
+def contracts_from_text(text: str) -> list[TaskContract]:
+    """Parse one or more contracts from YAML text (multi-document or a `contracts:` list)."""
+    try:
+        docs = [d for d in yaml.safe_load_all(text) if d is not None]
+    except yaml.YAMLError as exc:
+        raise ContractError(f"invalid YAML: {exc}") from None
+    if not docs:
+        raise ContractError("no contracts found")
+    out: list[TaskContract] = []
+    for doc in docs:
+        if isinstance(doc, Mapping) and set(doc) == {"contracts"}:
+            out.extend(TaskContract.from_dict(d) for d in doc["contracts"])
+        else:
+            out.append(TaskContract.from_dict(doc))
+    return out
+
+
+def task_from_text(task_text: str, *, contracts_text: str | None = None, base_dir: str | Path = ".", name: str = "task") -> TaskFile:
+    """Build a task from YAML text. `contracts_text`, if given, replaces the task's contract references."""
+    try:
+        data = yaml.safe_load(task_text)
+    except yaml.YAMLError as exc:
+        raise TaskError(f"task: invalid YAML: {exc}") from None
+    contracts = contracts_from_text(contracts_text) if contracts_text and contracts_text.strip() else None
+    return task_from_mapping(data, base_dir=Path(base_dir), name=name, label="task", contracts=contracts)
+
+
+def task_from_mapping(data: Any, *, base_dir: Path, name: str, label: str, contracts: list[TaskContract] | None = None) -> TaskFile:
     if not isinstance(data, Mapping):
-        raise TaskError(f"{path}: task file must be a mapping")
+        raise TaskError(f"{label}: task must be a mapping")
     unknown = set(data) - _TASK_FIELDS
     if unknown:
-        raise TaskError(f"{path}: unknown task fields {sorted(unknown)}")
+        raise TaskError(f"{label}: unknown task fields {sorted(unknown)}")
 
-    contracts: list[TaskContract] = []
-    sources = []
-    if "contract" in data:
-        sources.append(data["contract"])
-    sources.extend(data.get("contracts") or [])
-    if not sources:
-        raise TaskError(f"{path}: a task needs 'contract' or 'contracts'")
-    for source in sources:
-        if isinstance(source, str):
-            contracts.extend(load_contracts((path.parent / source).resolve()))
-        elif isinstance(source, Mapping):
-            contracts.append(TaskContract.from_dict(source))
-        else:
-            raise TaskError(f"{path}: contract entries must be a path or a mapping")
+    if contracts is None:
+        contracts = []
+        sources = []
+        if "contract" in data:
+            sources.append(data["contract"])
+        sources.extend(data.get("contracts") or [])
+        if not sources:
+            raise TaskError(f"{label}: a task needs 'contract' or 'contracts'")
+        for source in sources:
+            if isinstance(source, str):
+                contracts.extend(load_contracts((base_dir / source).resolve()))
+            elif isinstance(source, Mapping):
+                contracts.append(TaskContract.from_dict(source))
+            else:
+                raise TaskError(f"{label}: contract entries must be a path or a mapping")
 
     default_agent = data.get("agent")
     raw_steps = data.get("steps")
     if not isinstance(raw_steps, list) or not raw_steps:
-        raise TaskError(f"{path}: 'steps' must be a non-empty list")
-    steps = [_parse_step(path, i + 1, raw, default_agent) for i, raw in enumerate(raw_steps)]
-    return TaskFile(path, str(data.get("name") or path.stem), contracts, steps, data.get("tools") or {})
+        raise TaskError(f"{label}: 'steps' must be a non-empty list")
+    steps = [_parse_step(Path(label), i + 1, raw, default_agent) for i, raw in enumerate(raw_steps)]
+    return TaskFile(base_dir / f"{name}.yaml", str(data.get("name") or name), contracts, steps, data.get("tools") or {})
 
 
 def _parse_step(path: Path, index: int, raw: Any, default_agent: str | None) -> Step:
@@ -113,6 +145,11 @@ class Row:
     reason: str
     outcome: str
     detail: str
+    action: str = ""
+    rule: str | None = None
+    capability: str | None = None
+    contract_id: str | None = None
+    decision_id: str | None = None
 
 
 @dataclass
@@ -184,7 +221,11 @@ def _row(harness: Harness, idx: str, agent: str, label: str, result: Authorizati
                 outcome = f"refused ({refusal.reason})"
         else:
             outcome = "authorized"
-    return Row(idx, agent, label, result.decision.decision.value.upper(), result.reason_code.value, outcome, result.decision.detail)
+    d = result.decision
+    return Row(
+        idx, agent, label, d.decision.value.upper(), result.reason_code.value, outcome, d.detail,
+        action=d.request.action, rule=d.rule, capability=d.capability, contract_id=d.contract_id, decision_id=d.decision_id,
+    )
 
 
 # -- rendering -------------------------------------------------------------
