@@ -67,7 +67,7 @@ def delegation_contracts(*, b_can_write: bool = False, a_may_request: tuple[str,
     """
     contract_a = TaskContract.from_dict({
         "contract_id": "contract-a",
-        "goal": "coordinate research",
+        "goal": "coordinate research", "max_steps": 50,
         "agents": {
             "agent-a": {
                 "capabilities": {
@@ -86,7 +86,7 @@ def delegation_contracts(*, b_can_write: bool = False, a_may_request: tuple[str,
         b_caps["database.write"] = "allow"
     contract_b = TaskContract.from_dict({
         "contract_id": "contract-b",
-        "goal": "answer research questions",
+        "goal": "answer research questions", "max_steps": 50,
         "approvers": ["alice"],
         "agents": {"agent-b": {"capabilities": b_caps}},
     })

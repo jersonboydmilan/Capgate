@@ -78,9 +78,15 @@ interception point (`Interceptor.decide`) and one execution path
 
 ## Decisions worth knowing
 
-- **Steps count proposals, not executions.** `max_steps` is consumed by every
-  proposal, including denied ones, so probing for permissions spends budget.
-  The budget is per contract, shared by all agents bound to it.
+- **Every contract has a budget; steps count proposals, not executions.**
+  `max_steps` is required and consumed by every proposal, including denied
+  ones, so probing for permissions, escalation spam and message floods all
+  spend it. The budget is per contract, shared by all agents bound to it.
+- **Throttled requests never reach policy.** The HTTP boundary applies a
+  per-client limit before verifying any token and a per-principal limit after,
+  so a flooding agent is refused with 429 without spending budget or starving
+  other agents. Failed-authentication audit records are sampled per client, and
+  the next recorded one carries the count that was suppressed.
 - **Approvals re-evaluate.** Approving an escalation re-runs the policy engine
   at approval time; if the contract or capability has expired in the meantime,
   the approval yields a deny. Approving a delegation approves A's *request*;

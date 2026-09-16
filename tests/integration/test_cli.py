@@ -46,6 +46,6 @@ def test_fail_on_flag(capsys):
 
 def test_validate_rejects_bad_contract(tmp_path, capsys):
     bad = tmp_path / "bad.yaml"
-    bad.write_text("contract_id: x\ngoal: g\nagent: a\nallowed_tools: [web.search]\nmax_step: 3\n")
+    bad.write_text("contract_id: x\ngoal: g\nmax_steps: 50\nagent: a\nallowed_tools: [web.search]\nmax_step: 3\n")
     assert main(["validate", str(bad)]) == 2
     assert "unknown contract fields" in capsys.readouterr().err

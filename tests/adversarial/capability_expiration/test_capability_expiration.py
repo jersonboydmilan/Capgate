@@ -7,7 +7,7 @@ from helpers import FakeClock, SpyTool, T0, make_harness
 def contract(**cap_extra):
     return TaskContract.from_dict({
         "contract_id": "short-lived",
-        "goal": "g",
+        "goal": "g", "max_steps": 50,
         "expires_at": "2026-09-01T14:00:00Z",
         "agents": {"worker": {"capabilities": {
             "web.search": "allow",
@@ -49,7 +49,7 @@ def test_grant_expires_before_execution():
 def test_approval_rechecks_expiry():
     clock = FakeClock()
     c = TaskContract.from_dict({
-        "contract_id": "c", "goal": "g", "approvers": ["alice"],
+        "contract_id": "c", "goal": "g", "max_steps": 50, "approvers": ["alice"],
         "agents": {"worker": {"capabilities": {"prod.deploy": {"effect": "escalate", "expires_at": "2026-09-01T12:10:00Z"}}}},
     })
     harness = make_harness(c, clock=clock)

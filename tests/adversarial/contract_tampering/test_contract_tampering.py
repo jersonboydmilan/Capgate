@@ -5,6 +5,7 @@ from helpers import FakeClock
 CONTRACT = """
 contract_id: research-v1
 goal: research X
+max_steps: 50
 agents:
   researcher:
     capabilities:
@@ -44,8 +45,8 @@ def test_agent_cannot_be_bound_to_two_contracts():
     import pytest
     from harness import ContractError, TaskContract
 
-    a = TaskContract.from_dict({"contract_id": "a", "goal": "g", "agent": "x", "allowed_tools": ["web.search"]})
-    b = TaskContract.from_dict({"contract_id": "b", "goal": "g", "agent": "x", "allowed_tools": ["database.write"]})
+    a = TaskContract.from_dict({"contract_id": "a", "goal": "g", "max_steps": 50, "agent": "x", "allowed_tools": ["web.search"]})
+    b = TaskContract.from_dict({"contract_id": "b", "goal": "g", "max_steps": 50, "agent": "x", "allowed_tools": ["database.write"]})
     with pytest.raises(ContractError, match="exactly one contract"):
         Harness([a, b])
 

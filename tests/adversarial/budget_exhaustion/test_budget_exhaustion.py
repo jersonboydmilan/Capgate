@@ -13,7 +13,7 @@ def test_max_steps_counts_every_proposal_including_denied():
 
 
 def test_max_calls_per_capability():
-    c = TaskContract.from_dict({"contract_id": "c", "goal": "g", "agents": {"w": {"capabilities": {
+    c = TaskContract.from_dict({"contract_id": "c", "goal": "g", "max_steps": 50, "agents": {"w": {"capabilities": {
         "email.send": {"effect": "allow", "constraints": {"max_calls": 2}},
         "web.search": "allow",
     }}}})

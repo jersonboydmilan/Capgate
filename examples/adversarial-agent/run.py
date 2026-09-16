@@ -36,9 +36,9 @@ def main() -> None:
     tools = ToolService(tool_secret, tmp / "ledger.jsonl").start()
     harness = Harness(
         [
-            TaskContract.from_dict({"contract_id": "research-v1", "goal": "research", "approvers": ["alice"],
+            TaskContract.from_dict({"contract_id": "research-v1", "goal": "research", "max_steps": 50, "approvers": ["alice"],
                                     "agents": {"researcher": {"capabilities": {"web.search": "allow", "email.send": "escalate"}}}}),
-            TaskContract.from_dict({"contract_id": "admin-v1", "goal": "maintain db",
+            TaskContract.from_dict({"contract_id": "admin-v1", "goal": "maintain db", "max_steps": 50,
                                     "agents": {"db-admin": {"capabilities": {"database.write": "allow"}}}}),
         ],
         tools={

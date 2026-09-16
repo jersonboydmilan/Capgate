@@ -53,7 +53,8 @@ malicious contract author.
 | Edit the contract or grant itself capabilities | Frozen contracts, reserved namespaces | Enforced | `adversarial/contract_tampering`, `scope_expansion` |
 | Get another agent to act for it | Non-transitive delegation, messages carry no authority | Enforced | `adversarial/delegation`, `message_injection` |
 | Approve its own escalation | Approvers are distinct principals, per contract | Enforced | `adversarial/escalation`, `bypass` |
-| Exhaust budgets or flood messages | `max_steps` counts every proposal; `max_calls` | Enforced | `adversarial/budget_exhaustion` |
+| Exhaust budgets or flood messages | `max_steps` is required on every contract and counts every proposal; `max_calls` | Enforced | `adversarial/budget_exhaustion` |
+| Flood the HTTP boundary (starve other agents, fill the audit trail, hold threads) | Per-client limit before token verification, per-principal limit, sampled auth-failure audit with suppressed counts, 10s socket timeout, strict `Content-Length` | Enforced (per process) | `adversarial/budget_exhaustion/test_rate_limiting.py`, `integration/test_http_sdk.py` |
 | Reset budgets or replay grants by forcing a restart | Persistent state store; stable signing key | Enforced with `state:` configured | `integration/test_persistence.py` |
 | Use a capability after its window | Contract and capability expiry, rechecked on approval | Enforced | `adversarial/capability_expiration` |
 | Erase or rewrite evidence | Hash-chained audit, fail-closed writes | Detects tampering; does not prevent deleting the whole file | `adversarial/audit`, `unit/test_audit.py` |
@@ -125,10 +126,10 @@ compromised agent.
   database write lock). Without `state:`, state is in memory. There is no
   multi-host replication. Grants survive a restart only with a stable
   `signing_key_file`.
-- **The HTTP boundary has no rate limiting.** Stalled and malformed requests
-  are bounded (10s socket timeout, strict `Content-Length`), but a principal —
-  or an unauthenticated client that can reach the port — can still send many
-  requests and grow the audit trail. Put a rate-limiting proxy in front for now.
+- **Rate limits are per process and in memory.** Per-client and per-principal
+  token buckets, plus sampled auditing of failed authentication, bound request
+  floods and audit growth for one harness process. Several replicas each apply
+  their own limits; a shared limiter is not implemented.
 - **Audit tamper-evidence is local.** The hash chain detects edits within the
   file. Ship records to append-only storage to protect against deletion.
 - **Tokens are bearer tokens.** They are short-lived (verifier-capped TTL),

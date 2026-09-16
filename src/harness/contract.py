@@ -39,7 +39,7 @@ class TaskContract:
     contract_id: str
     goal: str
     agents: Mapping[str, AgentGrant] = field(default_factory=dict)
-    max_steps: int | None = None
+    max_steps: int | None = None  # required; None is rejected at construction
     expires_at: datetime | None = None
     approvers: tuple[str, ...] = ()
     version: str = "1"
@@ -49,7 +49,12 @@ class TaskContract:
             raise ContractError(f"invalid contract_id: {self.contract_id!r}")
         if not isinstance(self.goal, str) or not self.goal.strip():
             raise ContractError(f"{self.contract_id}: goal must be a non-empty string")
-        if self.max_steps is not None and (isinstance(self.max_steps, bool) or not isinstance(self.max_steps, int) or self.max_steps < 1):
+        if self.max_steps is None:
+            raise ContractError(
+                f"{self.contract_id}: max_steps is required — every contract needs a step budget "
+                "(it bounds probing, escalation spam and message floods)"
+            )
+        if isinstance(self.max_steps, bool) or not isinstance(self.max_steps, int) or self.max_steps < 1:
             raise ContractError(f"{self.contract_id}: max_steps must be a positive integer")
         if self.expires_at is not None:
             try:

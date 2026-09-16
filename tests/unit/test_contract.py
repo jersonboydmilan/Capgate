@@ -22,6 +22,7 @@ def test_shorthand_form_matches_spec_example():
     "mutation, message",
     [
         ({"allowed_tool": ["x"]}, "unknown contract fields"),
+        ({"max_steps": None}, "max_steps is required"),
         ({"max_steps": 0}, "max_steps"),
         ({"max_steps": True}, "max_steps"),
         ({"agents": {}}, "at least one agent"),
@@ -38,7 +39,7 @@ def test_shorthand_form_matches_spec_example():
     ],
 )
 def test_invalid_contracts_fail_closed(mutation, message):
-    base = {"contract_id": "c1", "goal": "g", "agents": {"researcher": {"capabilities": {"web.search": "allow"}}}}
+    base = {"contract_id": "c1", "goal": "g", "max_steps": 50, "agents": {"researcher": {"capabilities": {"web.search": "allow"}}}}
     base.update(mutation)
     with pytest.raises(ContractError, match=message):
         TaskContract.from_dict(base)
@@ -62,7 +63,7 @@ def test_content_hash_is_stable_and_sensitive():
 def test_multi_document_yaml(tmp_path):
     path = tmp_path / "contracts.yaml"
     path.write_text(
-        "contract_id: a\ngoal: g\nagent: x\nallowed_tools: [web.search]\n---\n"
-        "contract_id: b\ngoal: g\nagent: y\nallowed_tools: [web.fetch]\n"
+        "contract_id: a\ngoal: g\nmax_steps: 50\nagent: x\nallowed_tools: [web.search]\n---\n"
+        "contract_id: b\ngoal: g\nmax_steps: 50\nagent: y\nallowed_tools: [web.fetch]\n"
     )
     assert [c.contract_id for c in load_contracts(path)] == ["a", "b"]

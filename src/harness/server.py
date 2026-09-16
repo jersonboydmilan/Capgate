@@ -19,6 +19,7 @@ one step and returns only the outcome.
 from __future__ import annotations
 
 import json
+import math
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Mapping
@@ -27,6 +28,7 @@ from .core import ApprovalError, AuthorizationResult, DelegationResult, Harness,
 from .decision import ReasonCode
 from .executor import ExecutionRefused
 from .identity import TokenAuthority, TokenError
+from .ratelimit import RateLimitConfig, RateLimiter
 
 MAX_BODY = 1_000_000
 REQUEST_TIMEOUT_SECONDS = 10.0
@@ -40,6 +42,7 @@ class HarnessServer:
         *,
         host: str = "127.0.0.1",
         port: int = 0,
+        rate_limit: RateLimitConfig | None = None,
     ) -> None:
         if harness.mode is not Mode.ENFORCE:
             raise ValueError("the HTTP server runs in enforce mode; use `harness simulate` for dry runs")
@@ -47,6 +50,7 @@ class HarnessServer:
             authority.state = harness.state  # revocations live with the rest of the authority state
         self.harness = harness
         self.authority = authority
+        self.limiter = RateLimiter(rate_limit)
         self._approvers = {a for c in harness.contracts.values() for a in c.approvers}
         self.server = ThreadingHTTPServer((host, port), _make_handler(self))
         self.url = f"http://{host}:{self.server.server_address[1]}"
@@ -185,11 +189,13 @@ def _make_handler(app: HarnessServer):
         def log_message(self, *args):
             pass
 
-        def _send(self, code: int, body: Any) -> None:
+        def _send(self, code: int, body: Any, headers: dict | None = None) -> None:
             data = json.dumps(body, default=str).encode()
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
+            for name, value in (headers or {}).items():
+                self.send_header(name, value)
             self.end_headers()
             self.wfile.write(data)
 
@@ -212,23 +218,51 @@ def _make_handler(app: HarnessServer):
                 return None
             return data if isinstance(data, dict) else None
 
-        def _auth(self) -> tuple[str | None, str | None]:
+        def _limited(self, retry: float, scope: str, key: str) -> None:
+            record, suppressed = app.limiter.audit_auth_failure(f"{scope}:{key}")
+            if record:
+                app.harness.audit.record(
+                    "rate_limited", scope=scope, principal=key if scope == "principal" else None,
+                    client=self.client_address[0], path=self.path, suppressed_since_last=suppressed,
+                )
+            self.close_connection = True
+            self._send(429, {"error": "rate limited", "retry_after_seconds": round(retry, 2)}, {"Retry-After": str(max(1, math.ceil(retry)))})
+
+        def _gate(self) -> tuple[str | None, str | None] | None:
+            """Client limit → authentication → principal limit. Returns None if a response was already sent."""
+            client = self.client_address[0]
+            allowed, retry = app.limiter.client(client)
+            if not allowed:
+                self._limited(retry, "client", client)
+                return None
             agent, approver, failure = app.identify(self.headers.get("Authorization"))
             if failure is not None:
-                app.harness.audit.record(
-                    "authentication_failed", path=self.path, method=self.command,
-                    reason_code=ReasonCode.UNAUTHENTICATED.value, credential_error=failure, client=self.client_address[0],
-                )
+                record, suppressed = app.limiter.audit_auth_failure(client)
+                if record:
+                    app.harness.audit.record(
+                        "authentication_failed", path=self.path, method=self.command,
+                        reason_code=ReasonCode.UNAUTHENTICATED.value, credential_error=failure, client=client,
+                        suppressed_since_last=suppressed,
+                    )
+                self.close_connection = True
+                self._send(401, {"error": "unauthenticated"})
+                return None
+            principal = agent or approver
+            allowed, retry = app.limiter.principal(principal)
+            if not allowed:
+                self._limited(retry, "principal", principal)
+                return None
             return agent, approver
 
         def do_GET(self) -> None:
             if self.path == "/v1/health":
                 self._send(200, {"ok": True})
                 return
-            agent, approver = self._auth()
-            if agent is None and approver is None:
-                self._send(401, {"error": "unauthenticated"})
-            elif self.path == "/v1/messages" and agent:
+            identity = self._gate()
+            if identity is None:
+                return
+            agent, approver = identity
+            if self.path == "/v1/messages" and agent:
                 msgs = app.harness.receive(agent)
                 self._send(200, {"messages": [m.__dict__ for m in msgs]})
             elif self.path == "/v1/approvals" and approver:
@@ -239,10 +273,10 @@ def _make_handler(app: HarnessServer):
                 self._send(404, {"error": "not found"})
 
         def do_POST(self) -> None:
-            agent, approver = self._auth()
-            if agent is None and approver is None:
-                self._send(401, {"error": "unauthenticated"})
+            identity = self._gate()
+            if identity is None:
                 return
+            agent, approver = identity
             body = self._body()
             if body is None:
                 self.close_connection = True

@@ -90,7 +90,7 @@ def test_editing_the_contract_changes_the_decision(inspect):
 
 def test_invalid_contract_reported_inline(inspect):
     _, task, _ = request(inspect, f"/api/task?path={quote(str(TASK))}")
-    status, body, _ = request(inspect, "/api/simulate", body={"task_text": task["task_text"], "contracts_text": "contract_id: x\ngoal: g\nagents: {r: {capabilities: {web.search: perhaps}}}"})
+    status, body, _ = request(inspect, "/api/simulate", body={"task_text": task["task_text"], "contracts_text": "contract_id: x\ngoal: g\nmax_steps: 50\nagents: {r: {capabilities: {web.search: perhaps}}}"})
     assert status == 422 and "effect must be" in body["error"]
 
 
