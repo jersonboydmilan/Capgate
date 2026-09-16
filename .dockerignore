@@ -2,5 +2,5 @@
 .git
 **/__pycache__
 .pytest_cache
-deploy/isolated/.secrets
+deploy/.secrets
 *.jsonl

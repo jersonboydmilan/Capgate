@@ -8,7 +8,7 @@ base image plus artifacts fetched here and verified:
   * PyYAML (sdist from PyPI)               — SHA-256 checked against PyPI metadata
   * iptables .apk packages                 — signature checked by `apk` inside the build
 
-    python deploy/isolated/fetch_artifacts.py
+    python deploy/fetch_artifacts.py
 """
 
 from __future__ import annotations

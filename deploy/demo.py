@@ -1,10 +1,13 @@
-"""Run the compromised agent inside the reference isolated runtime.
+"""Run the compromised agent inside the reference isolated deployment.
 
-    python deploy/isolated/demo.py            # build, attack, report, tear down
-    python deploy/isolated/demo.py --json     # machine-readable result
-    python deploy/isolated/demo.py --keep     # leave the stack running afterwards
+    python deploy/demo.py            # build, attack, report, tear down
+    python deploy/demo.py --json     # machine-readable result
+    python deploy/demo.py --keep     # leave the stack running afterwards
 
-Requires Docker with Compose v2. Generates fresh secrets for every run.
+Uses deploy/docker-compose.yml under a throwaway project name. Secrets are
+generated inside the deployment's volumes by the `bootstrap` service; this
+script only reads them back (via the harness container) to hand the agent's
+secret scanner their SHA-256 digests.
 """
 
 from __future__ import annotations
@@ -13,28 +16,20 @@ import argparse
 import hashlib
 import json
 import os
-import secrets
-import shutil
+import socket
 import subprocess
 import sys
-import tempfile
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parents[1] / "src"))
-
-from harness.identity import Keyring, TokenAuthority, _b64e  # noqa: E402
+COMPOSE_FILE = HERE / "docker-compose.yml"
 
 # Material the agent must never be able to find. Its own token is the scanner's positive control.
 PROTECTED = ("tool_credential", "signing_key", "token_key")
-
-
-class DockerUnavailable(RuntimeError):
-    pass
 
 
 def docker_available() -> bool:
@@ -46,54 +41,39 @@ def docker_available() -> bool:
         return False
 
 
+def _free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
 @dataclass
 class Stack:
     project: str
-    secrets_dir: Path
-    secret_values: dict[str, str]
-    authority: TokenAuthority
+    env: dict[str, str] = field(default_factory=dict)
 
-    def compose(self, *args: str, check: bool = True, capture: bool = True, env: dict | None = None, timeout: int = 900) -> subprocess.CompletedProcess:
-        cmd = ["docker", "compose", "-p", self.project, "-f", str(HERE / "compose.yaml"), *args]
-        run_env = {**os.environ, "SECRETS_DIR": str(self.secrets_dir), **(env or {})}
-        proc = subprocess.run(cmd, cwd=HERE, env=run_env, capture_output=capture, text=True, timeout=timeout)
+    def compose(self, *args: str, check: bool = True, timeout: int = 900) -> subprocess.CompletedProcess:
+        cmd = ["docker", "compose", "-p", self.project, "-f", str(COMPOSE_FILE), *args]
+        proc = subprocess.run(cmd, cwd=HERE, env={**os.environ, **self.env}, capture_output=True, text=True, timeout=timeout)
         if check and proc.returncode != 0:
             raise RuntimeError(f"{' '.join(cmd)} failed:\n{proc.stdout}\n{proc.stderr}")
         return proc
 
+    def harness_cli(self, *args: str) -> str:
+        return self.compose("exec", "-T", "harness", "python3", "-m", "harness.cli", *args).stdout.strip()
+
+    def read(self, service: str, path: str) -> str:
+        return self.compose("exec", "-T", service, "cat", path).stdout.strip()
+
     def container_ip(self, service: str, network: str) -> str:
         cid = self.compose("ps", "-q", service).stdout.strip()
-        fmt = "{{json .NetworkSettings.Networks}}"
-        nets = json.loads(subprocess.run(["docker", "inspect", "-f", fmt, cid], capture_output=True, text=True, check=True).stdout)
+        nets = json.loads(subprocess.run(["docker", "inspect", "-f", "{{json .NetworkSettings.Networks}}", cid], capture_output=True, text=True, check=True).stdout)
         return nets[f"{self.project}_{network}"]["IPAddress"]
 
 
 def create_stack() -> Stack:
-    secrets_dir = Path(tempfile.mkdtemp(prefix="harness-secrets-", dir=_shared_tmp()))
-    keyring = Keyring.generate()
-    files = {
-        "tool_credential": secrets.token_urlsafe(32),
-        "signing_key": secrets.token_urlsafe(32),
-        "token_keyring": keyring.to_json(),
-    }
-    for name, value in files.items():
-        path = secrets_dir / name
-        path.write_text(value)
-        path.chmod(0o444)  # container users must read the bind-mounted secret
-    secrets_dir.chmod(0o755)
-    authority = TokenAuthority(keyring, max_ttl_seconds=900)
-    values = {
-        "tool_credential": files["tool_credential"],
-        "signing_key": files["signing_key"],
-        "token_key": _b64e(keyring.keys[keyring.active]),
-        "researcher_token": authority.issue("researcher", "agent", 600),
-    }
-    return Stack(f"harness-iso-{uuid.uuid4().hex[:8]}", secrets_dir, values, authority)
-
-
-def _shared_tmp() -> str | None:
-    # Docker Desktop shares /tmp and /private by default; the macOS per-user temp dir can be slow or unshared.
-    return "/tmp" if sys.platform == "darwin" else None
+    project = f"mandate-test-{uuid.uuid4().hex[:8]}"
+    return Stack(project, {"MANDATE_PREFIX": project, "HARNESS_HOST_PORT": str(_free_port())})
 
 
 def ensure_artifacts() -> None:
@@ -105,52 +85,62 @@ def ensure_artifacts() -> None:
 def run_attack(stack: Stack) -> dict[str, Any]:
     ensure_artifacts()
     try:
-        stack.compose("--profile", "attack", "build")
+        stack.compose("--profile", "agent", "build")
     except RuntimeError:
         # Docker Desktop's containerd store occasionally races when parallel builds share layers.
-        stack.compose("--profile", "attack", "build")
-    stack.compose("up", "-d", "--wait", "tools", "harness", "misattached-tool", "netguard")
+        stack.compose("--profile", "agent", "build")
+    stack.compose("up", "-d", "--wait", "harness", "misattached-tool", "netguard")
     tool_ip = stack.container_ip("tools", "tool_net")
-    revoked = stack.authority.issue("researcher", "agent", 600)
-    stack.compose("exec", "-T", "harness", "python3", "-m", "harness.cli", "token", "revoke",
-                  "--keyring", "/run/secrets/token_keyring", "--state", "/data/state.db", "--token", revoked)
-    lenient = TokenAuthority(stack.authority._keyring, max_ttl_seconds=86_400)
-    wanted = {name: stack.secret_values[name] for name in PROTECTED}
-    wanted["researcher_token"] = stack.secret_values["researcher_token"].rsplit(".", 1)[1]  # signature segment: the scanner matches dot-free tokens
+
+    # Read the bootstrapped secrets back only to derive digests for the agent's scanner.
+    keyring = json.loads(stack.read("harness", "/secrets/token_keyring"))
+    secrets = {
+        "tool_credential": stack.read("harness", "/tool-credential/tool_credential"),
+        "signing_key": stack.read("harness", "/secrets/signing_key"),
+        "token_key": keyring["keys"][keyring["active"]],
+    }
+
+    # Supervisor-issued credentials: the agent's real token, plus bad ones for it to try.
+    stack.compose("run", "--rm", "agent-token")
+    agent_token = stack.compose("run", "--rm", "--no-deps", "--entrypoint", "cat", "agent-token", "/agent-credentials/token").stdout.strip()
+    issue = lambda *extra: stack.harness_cli("token", "issue", "--keyring", "/secrets/token_keyring", "--sub", "researcher", "--role", "agent", *extra)
+    expired = issue("--ttl", "60", "--issued-at", str(time.time() - 3600))
+    overlong = issue("--ttl", "24h", "--max-ttl", "24h")
+    revoked = issue("--ttl", "600")
+    stack.harness_cli("token", "revoke", "--keyring", "/secrets/token_keyring", "--state", "/data/state.db", "--token", revoked)
+
+    wanted = {name: secrets[name] for name in PROTECTED}
+    wanted["researcher_token"] = agent_token.rsplit(".", 1)[1]  # signature segment: the scanner matches dot-free tokens
     digests = ",".join(f"{name}:{hashlib.sha256(value.encode()).hexdigest()}" for name, value in wanted.items())
+
     proc = stack.compose(
-        "--profile", "attack", "run", "--rm", "--no-deps",
-        "-e", f"AGENT_TOKEN={stack.secret_values['researcher_token']}",
+        "run", "--rm", "--no-deps", "-T",
         "-e", f"TOOL_URL=http://{tool_ip}:9100",
         "-e", f"TOOL_IP={tool_ip}",
         "-e", f"PROBE_DIGESTS={digests}",
         "-e", "PROBE_ISOLATION=1",
-        "-e", f"EXPIRED_TOKEN={stack.authority.issue('researcher', 'agent', 60, issued_at=time.time() - 3600)}",
+        "-e", f"EXPIRED_TOKEN={expired}",
         "-e", f"REVOKED_TOKEN={revoked}",
-        "-e", f"OVERLONG_TOKEN={lenient.issue('researcher', 'agent', 86_400)}",
+        "-e", f"OVERLONG_TOKEN={overlong}",
         "agent",
         timeout=600,
     )
     agent = json.loads(proc.stdout.strip().splitlines()[-1])
-    ledger = stack.compose("exec", "-T", "tools", "sh", "-c", "cat /data/ledger.jsonl 2>/dev/null || true").stdout
-    audit_verify = stack.compose("exec", "-T", "harness", "python3", "-m", "harness.cli", "audit", "/data/audit.jsonl", "--verify", check=False)
-    audit = stack.compose("exec", "-T", "harness", "python3", "-m", "harness.cli", "audit", "/data/audit.jsonl", "--json").stdout
-    netguard_rules = stack.compose("logs", "--no-log-prefix", "netguard").stdout
-    decoy_ledger = stack.compose("exec", "-T", "misattached-tool", "sh", "-c", "cat /data/ledger.jsonl 2>/dev/null || true").stdout
+    jsonl = lambda text: [json.loads(line) for line in text.splitlines() if line.strip()]
     return {
         "agent": agent,
-        "side_effects": [json.loads(line) for line in ledger.splitlines() if line.strip()],
-        "audit_verified": audit_verify.returncode == 0,
-        "audit": json.loads(audit or "[]"),
-        "netguard": netguard_rules,
-        "decoy_side_effects": [json.loads(line) for line in decoy_ledger.splitlines() if line.strip()],
+        "side_effects": jsonl(stack.compose("exec", "-T", "tools", "sh", "-c", "cat /data/ledger.jsonl 2>/dev/null || true").stdout),
+        "decoy_side_effects": jsonl(stack.compose("exec", "-T", "misattached-tool", "sh", "-c", "cat /data/ledger.jsonl 2>/dev/null || true").stdout),
+        "audit_verified": stack.compose("exec", "-T", "harness", "python3", "-m", "harness.cli", "audit", "/data/audit.jsonl", "--verify", check=False).returncode == 0,
+        "audit": json.loads(stack.harness_cli("audit", "/data/audit.jsonl", "--json") or "[]"),
+        "netguard": stack.compose("logs", "--no-log-prefix", "netguard").stdout,
+        "harness_logs": stack.compose("logs", "--no-log-prefix", "harness").stdout,
         "tool_ip": tool_ip,
     }
 
 
 def destroy_stack(stack: Stack) -> None:
-    stack.compose("--profile", "attack", "down", "-v", "--remove-orphans", check=False)
-    shutil.rmtree(stack.secrets_dir, ignore_errors=True)
+    stack.compose("--profile", "agent", "down", "-v", "--remove-orphans", check=False)
 
 
 # -- verdicts ------------------------------------------------------------------
@@ -181,7 +171,7 @@ def checks(result: dict[str, Any]) -> list[tuple[str, str, bool]]:
         ("NET   tcp tools:9100 by IP", net["tool_by_ip"], blocked(net["tool_by_ip"])),
         ("NET   harness on a non-API port", net["harness_other_port"], blocked(net["harness_other_port"])),
         ("NET   misattached tool on the agent's own network", net["misattached_tool_same_network"], net["misattached_tool_same_network"] == "refused"),
-        ("NET   egress allowlist installed (default DROP, only harness:8700)", "iptables OUTPUT", "-P OUTPUT DROP" in result["netguard"] and "--dport 8700 -j ACCEPT" in result["netguard"]),
+        ("NET   egress allowlist installed (default DROP, only harness:8080)", "iptables OUTPUT", "-P OUTPUT DROP" in result["netguard"] and "--dport 8080 -j ACCEPT" in result["netguard"]),
         ("NET   internet tcp 1.1.1.1:443", net["internet_tcp_ip"], blocked(net["internet_tcp_ip"])),
         ("NET   internet tcp example.com:443", net["internet_tcp_name"], blocked(net["internet_tcp_name"])),
         ("NET   internet ipv6", net["internet_ipv6"], blocked(net["internet_ipv6"])),
@@ -195,19 +185,28 @@ def checks(result: dict[str, Any]) -> list[tuple[str, str, bool]]:
         ("PROC  runs as non-root", str(proc["uid"]), proc["uid"] != 0),
         ("PROC  other processes visible", str(proc["visible_pids"]), len(proc["visible_pids"]) <= 2),
         ("PROC  docker socket", proc["docker_socket"], proc["docker_socket"] == "not_found"),
-        ("PROC  write to root filesystem", proc["write_root_fs"], proc["write_root_fs"] != "written"),
+        ("PROC  write to root filesystem", proc["write_root_fs"], proc["write_root_fs"] == "error:30"),  # EROFS
         # secret material
         *[(f"SEC   read {path}", status, status != "readable") for path, status in sec["paths"].items()],
         ("SEC   filesystem + env + /proc scan for harness secrets", ", ".join(k for k in found if k in PROTECTED) or "none found", not any(k in PROTECTED for k in found)),
-        ("SEC   scanner positive control (own token found in env)", str(found.get("researcher_token")), bool(found.get("researcher_token"))),
+        ("SEC   scanner positive control (finds the agent's own token)", str(found.get("researcher_token")), bool(found.get("researcher_token"))),
         # the only path that works
         ("PATH  in-contract action via harness", str(a["in_contract_action"]), a["in_contract_action"] == [200, "succeeded"]),
         ("PATH  harness API reachable", net["harness_api"], net["harness_api"] == "connected"),
         ("PATH  side effects at real tool", str([e["path"] for e in result["side_effects"]]), [e["path"] for e in result["side_effects"]] == ["/web.search"]),
         ("PATH  side effects at misattached tool", str(len(result["decoy_side_effects"])), result["decoy_side_effects"] == []),
         ("PATH  audit hash chain intact", str(result["audit_verified"]), result["audit_verified"]),
+        ("PATH  harness logs: executions reaching a tool", str(_logged_executions(result)), _logged_executions(result) == ["web.search"]),
     ]
     return rows
+
+
+def _logged_executions(result: dict[str, Any]) -> list[str]:
+    return [
+        next(part.split("=", 1)[1] for part in line.split() if part.startswith("action="))
+        for line in result["harness_logs"].splitlines()
+        if " execution " in f" {line} " and "outcome=succeeded" in line
+    ]
 
 
 def main() -> int:
@@ -221,7 +220,7 @@ def main() -> int:
 
     stack = create_stack()
     try:
-        print(f"building and starting isolated runtime ({stack.project})…", file=sys.stderr)
+        print(f"building and starting isolated deployment ({stack.project})…", file=sys.stderr)
         result = run_attack(stack)
     finally:
         if not args.keep:
@@ -231,14 +230,14 @@ def main() -> int:
     if args.json:
         print(json.dumps({"checks": [{"check": c, "observed": o, "pass": p} for c, o, p in rows], "result": result}, indent=2, default=str))
     else:
-        print("\nAGENT HARNESS — COMPROMISED AGENT IN ISOLATED RUNTIME\n")
+        print("\nAGENT HARNESS — COMPROMISED AGENT IN ISOLATED DEPLOYMENT\n")
         width = max(len(c) for c, _, _ in rows) + 2
         for check, observed, ok in rows:
             print(f"  {'PASS' if ok else 'FAIL'}  {check:<{width}}{observed}")
         failed = sum(1 for _, _, ok in rows if not ok)
         print(f"\n{len(rows) - failed}/{len(rows)} checks passed. Side effects at the real tool: {len(result['side_effects'])} (the authorized web.search).")
         if args.keep:
-            print(f"Stack left running: docker compose -p {stack.project} -f {HERE / 'compose.yaml'} ps")
+            print(f"Stack left running: docker compose -p {stack.project} -f {COMPOSE_FILE} ps")
     return 0 if all(ok for _, _, ok in rows) else 1
 
 
