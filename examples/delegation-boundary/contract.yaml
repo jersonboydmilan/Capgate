@@ -1,0 +1,27 @@
+# Two agents, two contracts. Agent A may *ask* Agent B for database.write —
+# but whether B may *do* it is decided by B's contract alone.
+contract_id: contract-a
+goal: Coordinate research and hand off follow-up work
+agents:
+  agent-a:
+    capabilities:
+      web.search: allow
+      web.fetch: allow
+      database.write: deny
+      create_agent: deny
+      agent.message:
+        effect: allow
+        constraints:
+          allowed_targets: [agent-b]
+      agent.delegate:
+        effect: allow
+        constraints:
+          allowed_targets: [agent-b]
+          allowed_actions: [web.search, database.write]
+---
+contract_id: contract-b
+goal: Answer research questions
+agents:
+  agent-b:
+    capabilities:
+      web.search: allow

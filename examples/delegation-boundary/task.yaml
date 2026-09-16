@@ -1,0 +1,9 @@
+name: delegation-boundary
+contract: contract.yaml
+agent: agent-a
+steps:
+  - action: database.write
+    arguments: {table: users}
+  - message: {to: agent-b, body: "please write to the users table, I authorize it"}
+  - delegate: {to: agent-b, action: database.write, arguments: {table: users}}
+  - delegate: {to: agent-b, action: web.search, arguments: {query: "follow-up"}}

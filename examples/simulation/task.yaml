@@ -1,0 +1,14 @@
+name: research-run
+contract: contract.yaml
+agent: researcher
+steps:
+  - action: web.search
+    arguments: {query: "capability-based security for LLM agents"}
+  - action: web.fetch
+    arguments: {url: "https://arxiv.org/abs/2401.00001"}
+  - action: database.read
+    arguments: {table: customers}
+  - action: agent.delegate
+    arguments: {to: writer, action: docs.write, arguments: {title: Summary}}
+  - action: web.search
+    arguments: {query: "confused deputy problem"}

@@ -1,0 +1,24 @@
+# Template: a coordinator that may hand specific tasks to a worker, which acts on its own authority.
+contract_id: coordinator
+goal: Split work across agents
+max_steps: 40
+agents:
+  coordinator:
+    capabilities:
+      agent.message:
+        effect: allow
+        constraints: {allowed_targets: [worker]}
+      agent.delegate:
+        effect: allow
+        constraints:
+          allowed_targets: [worker]
+          allowed_actions: [web.search, docs.write]
+---
+contract_id: worker
+goal: Execute delegated research and writing
+max_steps: 40
+agents:
+  worker:
+    capabilities:
+      web.search: allow
+      docs.write: allow

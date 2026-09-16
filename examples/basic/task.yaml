@@ -1,0 +1,16 @@
+name: basic
+contract: contract.yaml
+agent: researcher
+tools:
+  web.search: {type: echo}
+  notes.write: {type: echo}
+  database.write: {type: echo}   # registered, but the contract denies it: it will never run
+steps:
+  - action: web.search
+    arguments: {query: "agent authorization"}
+  - action: notes.write
+    arguments: {title: "Findings", body: "Capabilities beat prompts."}
+  - action: database.write
+    arguments: {table: users, row: {role: admin}}
+  - action: notes.write
+    arguments: {title: "x", body: "y", visibility: public}
