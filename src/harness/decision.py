@@ -105,3 +105,26 @@ class Decision:
             "approved_by": self.approved_by,
             "timestamp": self.timestamp.isoformat(),
         }
+
+    def to_record(self) -> dict[str, Any]:
+        """Lossless form for persistence (includes the full request)."""
+        return {**self.to_dict(), "request": self.request.to_dict()}
+
+    @classmethod
+    def from_record(cls, record: dict[str, Any]) -> "Decision":
+        req = record["request"]
+        return cls(
+            decision_id=record["decision_id"],
+            request=ActionRequest(req["agent_id"], req["action"], req["arguments"], req["contract_id"]),
+            decision=DecisionType(record["decision"]),
+            reason_code=ReasonCode(record["reason_code"]),
+            detail=record["detail"],
+            contract_id=record["contract_id"],
+            contract_hash=record["contract_hash"],
+            capability=record["capability"],
+            rule=record["policy_rule"],
+            timestamp=datetime.fromisoformat(record["timestamp"]),
+            delegated_by=record.get("delegated_by"),
+            parent_decision_id=record.get("parent_decision_id"),
+            approved_by=record.get("approved_by"),
+        )

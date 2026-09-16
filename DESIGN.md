@@ -87,6 +87,11 @@ interception point (`Interceptor.decide`) and one execution path
   B's action is still evaluated under B's contract.
 - **Constraints are checked before escalation.** A proposal that violates a
   constraint is denied outright and never reaches a human.
+- **Authority state is durable.** Step and call counters, used grants,
+  approvals, messages and revocations live in a `StateStore`. The SQLite store
+  wraps read–evaluate–increment–audit in one write transaction, so a failed audit
+  write rolls back the budget it would have spent, and concurrent harness
+  processes cannot overspend a budget.
 - **Arguments are frozen at proposal time.** `ActionRequest` stores canonical
   JSON; the grant binds its hash. Swapping arguments between authorization and
   execution is refused (`GRANT_ARGUMENTS_MISMATCH`).

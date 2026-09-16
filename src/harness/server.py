@@ -52,8 +52,6 @@ class HarnessServer:
         self.harness = harness
         self._agents = dict(agent_tokens)
         self._approvers = dict(approver_tokens or {})
-        self._escalations: dict[str, dict[str, Any]] = {}
-        self._lock = threading.Lock()
         self.server = ThreadingHTTPServer((host, port), _make_handler(self))
         self.url = f"http://{host}:{self.server.server_address[1]}"
         self._thread: threading.Thread | None = None
@@ -92,7 +90,7 @@ class HarnessServer:
         if (mismatch := self._identity_mismatch(agent, body, body.get("action", "invalid"))) is not None:
             return mismatch
         result = self.harness.authorize(agent, body.get("action"), body.get("arguments") or {}, contract_id=body.get("contract_id"))
-        return self._respond(agent, result)
+        return self._respond(result)
 
     def handle_message(self, agent: str, body: Mapping[str, Any]) -> tuple[int, dict]:
         if (mismatch := self._identity_mismatch(agent, body, "agent.message")) is not None:
@@ -100,7 +98,6 @@ class HarnessServer:
         result = self.harness.send_message(agent, body.get("to"), body.get("body"), contract_id=body.get("contract_id"))
         payload = result.to_dict()
         if result.escalated:
-            self._track(agent, result)
             return 202, payload
         return (200 if result.allowed else 403), payload
 
@@ -108,7 +105,7 @@ class HarnessServer:
         if (mismatch := self._identity_mismatch(agent, body, "agent.delegate")) is not None:
             return mismatch
         delegation = self.harness.delegate(agent, body.get("to"), body.get("action"), body.get("arguments") or {}, contract_id=body.get("contract_id"))
-        return self._respond_delegation(agent, delegation)
+        return self._respond_delegation(delegation)
 
     def handle_approval(self, approver: str, approval_id: str, body: Mapping[str, Any]) -> tuple[int, dict]:
         verdict = body.get("verdict")
@@ -121,15 +118,11 @@ class HarnessServer:
                 outcome = self.harness.reject(approval_id, approver, str(body.get("note") or ""))
         except ApprovalError as exc:
             return 403, {"error": str(exc)}
-        with self._lock:
-            owner = self._escalations.get(approval_id, {}).get("agent")
         if isinstance(outcome, DelegationResult):
-            status, payload = self._respond_delegation(owner, outcome, track=False)
+            status, payload = self._respond_delegation(outcome)
         else:
-            status, payload = self._respond(owner, outcome, track=False)
-        with self._lock:
-            if approval_id in self._escalations:
-                self._escalations[approval_id].update(status="decided", result=payload)
+            status, payload = self._respond(outcome)
+        self.harness.annotate_approval(approval_id, result=payload)
         return status, payload
 
     def list_approvals(self, approver: str) -> list[dict]:
@@ -141,11 +134,16 @@ class HarnessServer:
         return out
 
     def approval_status(self, agent: str, approval_id: str) -> tuple[int, dict]:
-        with self._lock:
-            entry = self._escalations.get(approval_id)
-        if not entry or entry["agent"] != agent:
+        record = self.harness.approval_record(approval_id)
+        if not record or record["decision"]["request"]["agent_id"] != agent:
             return 404, {"error": "unknown approval"}
-        return 200, {"approval_id": approval_id, "status": entry["status"], "result": entry.get("result")}
+        return 200, {
+            "approval_id": approval_id,
+            "status": record["status"],
+            "verdict": record.get("verdict"),
+            "resulting_decision_id": record.get("resulting_decision_id"),
+            "result": record.get("result"),
+        }
 
     # -- helpers ---------------------------------------------------------------
 
@@ -159,16 +157,9 @@ class HarnessServer:
         )
         return 403, decision.to_dict()
 
-    def _track(self, agent: str | None, result: AuthorizationResult) -> None:
-        if result.approval_id:
-            with self._lock:
-                self._escalations[result.approval_id] = {"agent": agent, "status": "pending"}
-
-    def _respond(self, agent: str | None, result: AuthorizationResult, *, track: bool = True) -> tuple[int, dict]:
+    def _respond(self, result: AuthorizationResult) -> tuple[int, dict]:
         payload = result.to_dict()
         if result.escalated:
-            if track:
-                self._track(agent, result)
             return 202, payload
         if not result.allowed:
             return 403, payload
@@ -178,15 +169,13 @@ class HarnessServer:
             return 502, {**payload, "execution": {"status": "refused", "reason": refusal.reason}}
         return 200, {**payload, "execution": execution.to_dict()}
 
-    def _respond_delegation(self, agent: str | None, delegation: DelegationResult, *, track: bool = True) -> tuple[int, dict]:
+    def _respond_delegation(self, delegation: DelegationResult) -> tuple[int, dict]:
         first_payload = delegation.delegation.to_dict()
         if delegation.action is None:
             if delegation.delegation.escalated:
-                if track:
-                    self._track(agent, delegation.delegation)
                 return 202, {"delegation": first_payload, "action": None}
             return 403, {"delegation": first_payload, "action": None, "blocked_at": "sender"}
-        status, action_payload = self._respond(delegation.action.request.agent_id, delegation.action, track=track)
+        status, action_payload = self._respond(delegation.action)
         body = {"delegation": first_payload, "action": action_payload}
         if status == 403:
             body["blocked_at"] = "recipient"

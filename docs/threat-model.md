@@ -53,6 +53,7 @@ malicious contract author.
 | Get another agent to act for it | Non-transitive delegation, messages carry no authority | Enforced | `adversarial/delegation`, `message_injection` |
 | Approve its own escalation | Approvers are distinct principals, per contract | Enforced | `adversarial/escalation`, `bypass` |
 | Exhaust budgets or flood messages | `max_steps` counts every proposal; `max_calls` | Enforced | `adversarial/budget_exhaustion` |
+| Reset budgets or replay grants by forcing a restart | Persistent state store; stable signing key | Enforced with `state:` configured | `integration/test_persistence.py` |
 | Use a capability after its window | Contract and capability expiry, rechecked on approval | Enforced | `adversarial/capability_expiration` |
 | Erase or rewrite evidence | Hash-chained audit, fail-closed writes | Detects tampering; does not prevent deleting the whole file | `adversarial/audit`, `unit/test_audit.py` |
 
@@ -93,9 +94,13 @@ compromised agent.
   so content filtering is unnecessary for authorization. It is not a defence
   against a recipient being manipulated into *authorized* but unwise actions;
   narrow the recipient's contract for that.
-- **State is in-memory.** Budgets, pending approvals, used grants and mailboxes
-  do not survive a restart, and one harness process is the unit of consistency.
-  A restart resets `max_steps` counters.
+- **State is per host.** With `state: state.db` (SQLite), budgets, call limits,
+  used grants, pending/decided approvals, undelivered messages and revoked
+  credentials survive restarts, and harness processes on the same host sharing
+  the file make consistent decisions (read–evaluate–increment runs under a
+  database write lock). Without `state:`, state is in memory. There is no
+  multi-host replication. Grants survive a restart only with a stable
+  `signing_key_file`.
 - **Audit tamper-evidence is local.** The hash chain detects edits within the
   file. Ship records to append-only storage to protect against deletion.
 - **Tokens are static bearer tokens.** No rotation, mTLS or workload identity
@@ -105,7 +110,7 @@ compromised agent.
 
 1. ~~Reference deployment with egress control and process isolation~~ — done: `deploy/isolated/`.
    Next: gVisor/microVM runtime option; Kubernetes NetworkPolicy equivalent.
-2. Persistent state for budgets, approvals and used grants.
+2. ~~Persistent state for budgets, approvals and used grants~~ — done (SQLite, single host). Next: multi-host store.
 3. Workload identity (mTLS / SPIFFE) in place of static tokens.
 4. Remote append-only audit sink.
 5. MCP gateway entry point on the same interception path.

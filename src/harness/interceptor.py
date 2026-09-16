@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import threading
 import uuid
-from collections import defaultdict
 from typing import Iterable
 
 from .audit import AuditLog
@@ -15,6 +14,7 @@ from .contract import TaskContract, build_bindings
 from .decision import Decision, DecisionType, PolicyEvaluation, ReasonCode
 from .policy import Usage, evaluate
 from .request import ActionRequest
+from .state import MemoryStateStore, StateStore
 from .timeutil import Clock
 
 _OUTCOME = {
@@ -25,20 +25,19 @@ _OUTCOME = {
 
 
 class Interceptor:
-    def __init__(self, contracts: Iterable[TaskContract], audit: AuditLog, clock: Clock, *, simulate: bool) -> None:
+    def __init__(self, contracts: Iterable[TaskContract], audit: AuditLog, clock: Clock, *, simulate: bool, state: StateStore | None = None) -> None:
         self.contracts, self.bindings = build_bindings(contracts)
         self.audit = audit
         self.clock = clock
         self.simulate = simulate
+        self.state = state if state is not None else MemoryStateStore()
         self._lock = threading.RLock()
-        self._steps: dict[str, int] = defaultdict(int)
-        self._calls: dict[tuple[str, str], int] = defaultdict(int)
 
     def usage_for(self, request: ActionRequest) -> Usage:
         contract_id = self.bindings.get(request.agent_id) if isinstance(request.agent_id, str) else None
         if contract_id is None:
             return Usage()
-        return Usage(self._steps[contract_id], self._calls[(request.agent_id, request.action)])
+        return Usage(self.state.steps(contract_id), self.state.calls(request.agent_id, request.action))
 
     def decide(
         self,
@@ -48,12 +47,12 @@ class Interceptor:
         parent_decision_id: str | None = None,
     ) -> tuple[Decision, Usage]:
         """Evaluate a fresh proposal. Consumes one step of the contract budget."""
-        with self._lock:
+        with self._lock, self.state.transaction():
             usage = self.usage_for(request)
             evaluation = evaluate(request, self.contracts, self.bindings, usage, self.clock())
             contract_id = self.bindings.get(request.agent_id) if isinstance(request.agent_id, str) else None
             if contract_id is not None:
-                self._steps[contract_id] += 1
+                self.state.add_step(contract_id)
             decision = self.record(request, evaluation, delegated_by=delegated_by, parent_decision_id=parent_decision_id)
             return decision, usage
 
@@ -67,7 +66,7 @@ class Interceptor:
         approved_by: str | None = None,
     ) -> Decision:
         """Bind an evaluation to an id, a contract version and the audit trail."""
-        with self._lock:
+        with self._lock, self.state.transaction():
             contract_id = self.bindings.get(request.agent_id) if isinstance(request.agent_id, str) else None
             contract = self.contracts.get(contract_id) if contract_id else None
             decision = Decision(
@@ -86,7 +85,7 @@ class Interceptor:
                 approved_by=approved_by,
             )
             if decision.allowed:
-                self._calls[(request.agent_id, request.action)] += 1
+                self.state.add_call(request.agent_id, request.action)
             fields = decision.to_dict()
             fields.pop("timestamp")
             fields["requested_contract_id"] = request.contract_id
