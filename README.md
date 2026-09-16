@@ -25,7 +25,8 @@ around the harness — inside the reference isolated runtime:
 ```bash
 cd deploy
 python fetch_artifacts.py               # once; images build offline
-docker compose up --build -d harness
+docker compose --profile agent build     # rebuild every image, including netguard and agent
+docker compose up -d harness
 docker compose run --rm agent           # the compromised agent, inside its sandbox
 docker compose logs harness             # every decision; one successful execution
 ```
@@ -59,7 +60,7 @@ AGENT HARNESS — COMPROMISED AGENT IN ISOLATED RUNTIME
   PASS  PATH  side effects at real tool                                     ['/web.search']
   PASS  PATH  audit hash chain intact                                       True
   …
-51/51 checks passed. Side effects at the real tool: 1 (the authorized web.search).
+61/61 checks passed. Side effects at the real tool: 1 (the authorized web.search).
 ```
 
 What this runtime enforces, precisely: **the agent process cannot open a socket

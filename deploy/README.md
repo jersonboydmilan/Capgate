@@ -13,7 +13,7 @@ deploy/
   agent/malicious_agent.py → examples/adversarial-agent/malicious_agent.py
   network/               netguard: iptables egress allowlist for the agent
   config/                contracts + server config, mounted read-only into the harness only
-  demo.py                automated attack + 51 checks
+  demo.py                automated attack + 61 checks
   fetch_artifacts.py     verified, host-side download of offline build inputs
 ```
 
@@ -22,13 +22,22 @@ deploy/
 ```bash
 cd deploy
 python fetch_artifacts.py                   # once
-docker compose up --build -d harness        # bootstrap secrets, tool service, harness
+docker compose --profile agent build        # all images — `up --build harness` would NOT rebuild netguard/agent
+docker compose up -d harness                # bootstrap secrets, tool service, harness
 docker compose run --rm agent               # compromised agent with a fresh 15-minute token
 docker compose logs harness                 # one audit line per decision / execution
 docker compose exec tools cat /data/ledger.jsonl   # ground truth: side effects at the real tool
 curl http://127.0.0.1:8080/v1/health        # inspection port, host loopback only
 docker compose --profile agent down -v
 ```
+
+Rebuild all images after changing anything under `deploy/` or `src/`: a stale
+netguard image (for example one built during a mutation test) silently runs
+without its rules. The agent's log reports that as `UNEXPECTED SUCCESS` and the
+automated tests always rebuild every image, but a hand run only uses what you built.
+
+The agent writes a readable `[malicious] … → blocked as expected / UNEXPECTED SUCCESS`
+log to stderr and its structured results to stdout.
 
 Expected: every bypass attempt fails, with a connection error (the network) or
 a 401/403/404 (the harness). `logs harness` shows one `execution … outcome=succeeded`
@@ -37,7 +46,7 @@ line (`web.search`), and the ledger holds exactly that one side effect.
 ## Run it as tests
 
 ```bash
-python deploy/demo.py                        # build, attack, print 51 checks, tear down
+python deploy/demo.py                        # build, attack, print 61 checks, tear down
 pytest -m docker                             # tests/adversarial/isolation/test_network_boundary.py
 ```
 
