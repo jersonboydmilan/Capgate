@@ -40,7 +40,7 @@ malicious contract author.
 | Attack | Control | Status | Test |
 |---|---|---|---|
 | Propose an action the contract doesn't grant | Deny-by-default policy | Enforced | `adversarial/unauthorized_tool` |
-| Smuggle arguments, hit internal hosts | Capability constraints | Enforced (see limits) | `adversarial/argument_violation` |
+| Smuggle arguments, hit internal hosts | Capability constraints; connect-time address checks with IP pinning in `HttpFetchTool` | Enforced | `adversarial/argument_violation` |
 | Execute a denied/escalated action anyway | Signed, single-use, argument-bound grants | Enforced | `adversarial/unauthorized_tool`, `adversarial/bypass_attempt` |
 | Swap arguments after authorization | Grant binds argument hash | Enforced | `adversarial/argument_violation` |
 | Forge or replay a grant | HMAC signature, single use, expiry | Enforced | `adversarial/scope_expansion`, `bypass_attempt` |
@@ -85,11 +85,16 @@ compromised agent.
 
 ## Known limits
 
-- **URL constraints check the URL string.** DNS rebinding, redirects to private
-  addresses, and unusual IP encodings that a resolver accepts but Python's
-  `ipaddress` does not (e.g. `0x7f.1`) are not caught by `block_private_hosts`.
-  Prefer `allowed_domains`, and put an egress proxy in front of `HttpFetchTool`
-  for untrusted destinations.
+- **URL checks happen at two layers.** Policy (pure, no DNS) rejects private and
+  internal names, every non-canonical IP spelling (`127.1`, `0x7f.1`,
+  `2130706433`), IPv4-mapped/6to4/Teredo wrappers of private addresses,
+  embedded credentials, backslashes, whitespace, control characters and
+  non-ASCII hostnames. `HttpFetchTool` then resolves once, refuses if *any*
+  answer is non-public, connects to the vetted address (defeating DNS
+  rebinding), restricts ports, and returns redirects instead of following them,
+  so each hop is a new proposal. Other tools that open connections must do the
+  same; a hostname that is public at policy time and private at connect time is
+  only caught by the tool.
 - **Message content is not inspected.** By design, messages carry no authority,
   so content filtering is unnecessary for authorization. It is not a defence
   against a recipient being manipulated into *authorized* but unwise actions;
