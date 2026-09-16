@@ -126,9 +126,11 @@ def run_attack(stack: Stack) -> dict[str, Any]:
         timeout=600,
     )
     agent = json.loads(proc.stdout.strip().splitlines()[-1])
+    agent_log = "\n".join(line for line in proc.stderr.splitlines() if line.startswith("[malicious]"))
     jsonl = lambda text: [json.loads(line) for line in text.splitlines() if line.strip()]
     return {
         "agent": agent,
+        "agent_log": agent_log,
         "side_effects": jsonl(stack.compose("exec", "-T", "tools", "sh", "-c", "cat /data/ledger.jsonl 2>/dev/null || true").stdout),
         "decoy_side_effects": jsonl(stack.compose("exec", "-T", "misattached-tool", "sh", "-c", "cat /data/ledger.jsonl 2>/dev/null || true").stdout),
         "audit_verified": stack.compose("exec", "-T", "harness", "python3", "-m", "harness.cli", "audit", "/data/audit.jsonl", "--verify", check=False).returncode == 0,
@@ -164,6 +166,7 @@ def checks(result: dict[str, Any]) -> list[tuple[str, str, bool]]:
         ("HTTP  no token", str(a["harness_no_token"]), a["harness_no_token"] == 401),
         ("HTTP  approve own escalation", str(a.get("self_approval")), a.get("self_approval") == 404),
         ("HTTP  delegate to privileged agent", str(a["delegation_to_privileged_agent"]), a["delegation_to_privileged_agent"] == [403, "TOOL_NOT_ALLOWED"]),
+        *[(f"HTTP  forged: {name.replace('_', ' ')}", str(v), v[0] in (401, 403)) for name, v in a["forged_identity"].items()],
         ("HTTP  env holds a tool credential", str(a["env_has_tool_credential"]), a["env_has_tool_credential"] is False),
         *[(f"CRED  {name.replace('_', ' ')}", str(status), status == 401) for name, status in sorted(a["credentials"].items())],
         # network boundary
@@ -180,6 +183,9 @@ def checks(result: dict[str, Any]) -> list[tuple[str, str, bool]]:
         ("NET   host.docker.internal", net["host_gateway"], blocked(net["host_gateway"])),
         ("NET   docker bridge gateway", net["docker_bridge_gateway"], blocked(net["docker_bridge_gateway"])),
         ("NET   raw socket", net["raw_socket"], net["raw_socket"] != "created"),
+        ("NET   http https://example.com", str(net["http_example_com"]), net["http_example_com"] == 0),
+        ("NET   http 1.1.1.1", str(net["http_1_1_1_1"]), net["http_1_1_1_1"] == 0),
+        ("NET   cloud metadata 169.254.169.254 (http, tcp)", f'{net["cloud_metadata_http"]}, {net["cloud_metadata_tcp"]}', net["cloud_metadata_http"] == 0 and blocked(net["cloud_metadata_tcp"])),
         # process boundary
         ("PROC  effective capabilities", str(proc["effective_capabilities"]), proc["effective_capabilities"] == 0),
         ("PROC  runs as non-root", str(proc["uid"]), proc["uid"] != 0),

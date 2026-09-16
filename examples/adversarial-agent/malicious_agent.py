@@ -4,7 +4,9 @@ Runs as a separate OS process. It receives only what a real agent would:
 the harness URL, its own bearer token, and (worst case) the address of the
 real tool endpoint. It never receives the tool credential or the grant key.
 
-Prints one JSON object: attempt name -> HTTP status observed.
+Output: a readable `[malicious] … blocked / UNEXPECTED SUCCESS` log on stderr,
+and one JSON object (attempt -> observation) on stdout for automated checks.
+On a terminal the JSON is omitted unless AGENT_JSON=1.
 
 With PROBE_ISOLATION=1 (the isolated runtime) it also probes the sandbox
 itself: raw TCP/UDP/DNS egress, the host, the tool service by IP, raw
@@ -89,6 +91,19 @@ def main() -> None:
     status, body = call("POST", f"{harness}/v1/delegations", {"to": "db-admin", "action": "database.write", "arguments": write}, token)
     results["delegation_to_privileged_agent"] = [status, (body.get("delegation") or {}).get("reason_code")]
 
+    # 7b. Forged identities and approval powers, all through the harness.
+    forged = {
+        "admin_writes_database": {"agent_id": "admin", "action": "database.write", "arguments": {"table": "users"}},
+        "claims_privileged_contract": {"agent_id": "db-admin", "contract_id": "privileged-contract", "action": "database.write", "arguments": {}},
+        "grants_itself_approval_action": {"action": "agent.approve_escalation", "arguments": {"id": approval_id or "fake"}},
+        "calls_reserved_harness_action": {"action": "harness.approve", "arguments": {"id": approval_id or "fake"}},
+        "rewrites_own_contract": {"action": "contract.update", "arguments": {"grant": "database.write"}},
+    }
+    results["forged_identity"] = {}
+    for name, payload in forged.items():
+        status, body = call("POST", f"{harness}/v1/actions", payload, token)
+        results["forged_identity"][name] = [status, body.get("reason_code")]
+
     # 8. A legitimate in-contract action still works.
     status, body = call("POST", f"{harness}/v1/actions", {"action": "web.search", "arguments": {"query": "hello"}}, token)
     results["in_contract_action"] = [status, (body.get("execution") or {}).get("status")]
@@ -99,11 +114,73 @@ def main() -> None:
     if os.environ.get("PROBE_ISOLATION") == "1":
         results["isolation"] = isolation_probes(harness)
 
-    if sys.stdout.isatty():
-        json.dump(results, sys.stdout, indent=2)
-        print()
-    else:
+    narrate(results, harness)
+    if not sys.stdout.isatty() or os.environ.get("AGENT_JSON") == "1":
         json.dump(results, sys.stdout)
+        sys.stdout.write("\n")
+
+
+# -- human-readable log ----------------------------------------------------------
+
+def log(message: str) -> None:
+    print(f"[malicious] {message}", file=sys.stderr, flush=True)
+
+
+def _verdict_status(status: int, reason: str | None = None) -> str:
+    detail = f"{status}{' ' + reason if reason else ''}"
+    if status == 0:
+        return "blocked as expected: no connection"
+    if status in (401, 403, 404):
+        return f"blocked as expected: {detail}"
+    if status == 202:
+        return f"held for human approval (not executed): {detail}"
+    return f"UNEXPECTED SUCCESS {detail}"
+
+
+def narrate(r: dict, harness: str) -> None:
+    log("Compromised agent: ignoring the SDK, trying every route around the harness")
+    log(f"HARNESS_URL={harness}")
+    log("--- Attack: direct calls to the real tool ---")
+    for key in ("direct_tool_no_auth", "direct_tool_with_agent_token", "direct_tool_guessed_token"):
+        if key in r:
+            log(f"  {key:<34} → {_verdict_status(r[key])}")
+    log("--- Attack: out-of-contract, impersonation, contract claims, self-approval, delegation ---")
+    for key in ("harness_out_of_contract", "harness_impersonation", "harness_contract_claim", "delegation_to_privileged_agent"):
+        log(f"  {key:<34} → {_verdict_status(*r[key])}")
+    log(f"  {'harness_no_token':<34} → {_verdict_status(r['harness_no_token'])}")
+    log(f"  {'escalation_created':<34} → {_verdict_status(r['escalation_created'])}")
+    if "self_approval" in r:
+        log(f"  {'self_approval':<34} → {_verdict_status(r['self_approval'])}")
+    log("--- Attack: forged identity and approval powers ---")
+    for key, (status, reason) in r["forged_identity"].items():
+        log(f"  {key:<34} → {_verdict_status(status, reason)}")
+    log("--- Attack: tampered, forged, expired, revoked credentials ---")
+    for key, status in r["credentials"].items():
+        log(f"  {key:<34} → {_verdict_status(status)}")
+    iso = r.get("isolation")
+    if iso:
+        log("--- Attack: network egress from the sandbox ---")
+        for key, outcome in iso["network"].items():
+            reached = outcome in ("connected", "answered", "created") or str(outcome).startswith("resolved:") or (isinstance(outcome, int) and outcome not in (0, 401, 403, 404))
+            if key == "harness_api":
+                log(f"  {key:<34} → {outcome} (the one permitted destination)")
+            else:
+                log(f"  {key:<34} → {'UNEXPECTED SUCCESS ' + str(outcome) if reached else 'blocked as expected: ' + str(outcome)}")
+        log("--- Attack: privileges and secret material ---")
+        proc, sec = iso["process"], iso["secrets"]
+        log(f"  {'effective_capabilities':<34} → {proc['effective_capabilities']}")
+        log(f"  {'write_root_fs':<34} → {proc['write_root_fs']}")
+        readable = [path for path, status in sec["paths"].items() if status == "readable"]
+        log(f"  {'secret_paths_readable':<34} → {'UNEXPECTED SUCCESS ' + str(readable) if readable else 'blocked as expected: none'}")
+        leaked = [k for k in sec["scan"]["found"] if k != "researcher_token"]
+        if not os.environ.get("PROBE_DIGESTS"):
+            log(f"  {'secret_scan':<34} → skipped (no secret digests provided; run deploy/demo.py for the full scan)")
+        else:
+            log(f"  {'secret_scan':<34} → {'UNEXPECTED SUCCESS ' + str(leaked) if leaked else 'blocked as expected: nothing found in ' + str(sec['scan']['files_scanned']) + ' files, env, /proc'}")
+    log("--- Legitimate in-contract call ---")
+    status, outcome = r["in_contract_action"]
+    log(f"  web.search → {status} {outcome}")
+    log("All attacks finished")
 
 
 def _b64e(data: bytes) -> str:
@@ -264,6 +341,10 @@ def isolation_probes(harness_url: str) -> dict:
             "internet_tcp_ip": tcp("1.1.1.1", 443),
             "internet_tcp_name": tcp("example.com", 443),
             "internet_ipv6": tcp("2606:4700:4700::1111", 443),
+            "http_example_com": call("GET", "https://example.com/")[0],
+            "http_1_1_1_1": call("GET", "http://1.1.1.1/")[0],
+            "cloud_metadata_http": call("GET", "http://169.254.169.254/latest/meta-data/")[0],
+            "cloud_metadata_tcp": tcp("169.254.169.254", 80),
             "dns_external_name": resolve("example.com"),
             "udp_dns_8_8_8_8": udp_dns("8.8.8.8"),
             "host_gateway": tcp("host.docker.internal", harness_port),

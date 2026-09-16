@@ -2,7 +2,8 @@
 #
 #   cd deploy
 #   python fetch_artifacts.py                  # once: offline build inputs
-#   docker compose up --build -d harness       # bootstrap secrets, tools, harness
+#   docker compose --profile agent build       # ALL images, incl. netguard and agent
+#   docker compose up -d harness               # bootstrap secrets, tools, harness
 #   docker compose run --rm agent              # compromised agent, fresh 15-minute token
 #   docker compose logs harness                # one audit line per decision/execution
 #
@@ -155,4 +156,5 @@ services:
       HARNESS_URL: "http://harness:8080"
       AGENT_TOKEN_FILE: /run/agent/token
       TOOL_URL: "http://tools:9100"   # assume the attacker knows where the real tool lives
+      PROBE_ISOLATION: "1"             # also probe network egress, privileges and secret paths
     volumes: ["agent-credentials:/run/agent:ro"]

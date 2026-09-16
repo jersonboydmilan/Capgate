@@ -101,6 +101,13 @@ def test_compromised_agent_process_cannot_cause_unauthorized_side_effects(deploy
     assert r["self_approval"] == 404
     assert r["delegation_to_privileged_agent"] == [403, "TOOL_NOT_ALLOWED"]
     assert r["in_contract_action"] == [200, "succeeded"]
+    assert r["forged_identity"] == {
+        "admin_writes_database": [403, "IDENTITY_MISMATCH"],
+        "claims_privileged_contract": [403, "IDENTITY_MISMATCH"],
+        "grants_itself_approval_action": [403, "TOOL_NOT_ALLOWED"],
+        "calls_reserved_harness_action": [403, "RESERVED_ACTION"],
+        "rewrites_own_contract": [403, "RESERVED_ACTION"],
+    }
     assert r["credentials"] and set(r["credentials"].values()) == {401}, r["credentials"]
     assert set(r["credentials"]) >= {"sub_swapped_to_db_admin", "expiry_extended_one_year", "forged_with_guessed_key", "expired_token", "revoked_token", "overlong_token"}
 
