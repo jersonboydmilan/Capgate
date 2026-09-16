@@ -23,7 +23,17 @@ Run a compromised agent — one that ignores the SDK and tries every route
 around the harness — inside the reference isolated runtime:
 
 ```bash
-python deploy/isolated/demo.py          # needs Docker; builds offline, ~1 minute
+cd deploy
+python fetch_artifacts.py               # once; images build offline
+docker compose up --build -d harness
+docker compose run --rm agent           # the compromised agent, inside its sandbox
+docker compose logs harness             # every decision; one successful execution
+```
+
+or, with all checks evaluated automatically:
+
+```bash
+python deploy/demo.py                   # ~1 minute
 ```
 
 ```
@@ -39,6 +49,7 @@ AGENT HARNESS — COMPROMISED AGENT IN ISOLATED RUNTIME
   PASS  CRED  revoked token                                                 401
   PASS  NET   tcp tools:9100 by IP                                          error:101
   PASS  NET   misattached tool on the agent's own network                   refused
+  PASS  NET   egress allowlist installed (default DROP, only harness:8080)  iptables OUTPUT
   PASS  NET   internet tcp 1.1.1.1:443                                      error:101
   PASS  NET   resolve example.com                                           dns_failed
   PASS  NET   raw socket                                                    permission_denied
@@ -48,7 +59,7 @@ AGENT HARNESS — COMPROMISED AGENT IN ISOLATED RUNTIME
   PASS  PATH  side effects at real tool                                     ['/web.search']
   PASS  PATH  audit hash chain intact                                       True
   …
-50/50 checks passed. Side effects at the real tool: 1 (the authorized web.search).
+51/51 checks passed. Side effects at the real tool: 1 (the authorized web.search).
 ```
 
 What this runtime enforces, precisely: **the agent process cannot open a socket
@@ -58,7 +69,7 @@ token; tampered, forged, expired, revoked and over-long tokens are rejected. The
 the network (`0` = no connection), not merely with `401`. The only path that
 produces a side effect is `authorize → signed permit → executor`. Details, the
 two network layers, and what is *not* claimed:
-[deploy/isolated/README.md](deploy/isolated/README.md).
+[deploy/README.md](deploy/README.md).
 
 ## Thirty seconds: simulate a contract
 
@@ -169,14 +180,14 @@ the harness**, in the following precise sense.
 |---|---|---|
 | Out-of-contract proposals are denied | Pure deny-by-default policy engine | `tests/adversarial/*`, `tests/unit/test_policy.py` |
 | A denied or escalated action never reaches a tool | Executor runs only with a harness-signed, single-use grant bound to the exact agent, action and argument hash | `tests/adversarial/unauthorized_tool` (Test C) |
-| An agent process cannot reach the real tool directly | **Isolated runtime:** agent's only network route is `harness:8700` (internal networks + iptables allowlist). **Any deployment:** tool credentials exist only in the executor and the tool endpoint requires them | `tests/isolation` (`pytest -m docker`), `tests/bypass/test_process_boundary.py` |
-| An agent cannot read harness secrets | Isolated runtime: secrets mounted only into harness/tools, separate PID namespace, no capabilities, read-only filesystem | `tests/isolation` |
+| An agent process cannot reach the real tool directly | **Isolated runtime:** agent's only network route is `harness:8700` (internal networks + iptables allowlist). **Any deployment:** tool credentials exist only in the executor and the tool endpoint requires them | `tests/adversarial/isolation` (`pytest -m docker`), `tests/bypass/test_process_boundary.py` |
+| An agent cannot read harness secrets | Isolated runtime: secrets mounted only into harness/tools, separate PID namespace, no capabilities, read-only filesystem | `tests/adversarial/isolation` |
 | An agent cannot impersonate another agent or pick its contract | Identity comes from a verified short-lived signed token (expiry, TTL cap, rotation, revocation), contract from the server-side binding | `tests/bypass`, `tests/unit/test_identity.py`, `tests/adversarial/scope_expansion` |
 | Restarts don't reset authority | Budgets, used grants, approvals, messages and revocations persist in SQLite | `tests/integration/test_persistence.py` |
 | Every decision is auditable | Audit write happens before a decision is returned; failure blocks execution; records are hash-chained | `tests/adversarial/audit` (Test E) |
 
 The network and secret guarantees hold for the reference runtime in
-[`deploy/isolated/`](deploy/isolated/README.md), or a deployment that reproduces
+[`deploy/`](deploy/README.md), or a deployment that reproduces
 its properties. If an agent instead runs as the same user on the same host as
 the harness, it may be able to read the harness's memory, files or environment;
 credential custody still stops direct tool calls, but not that. Kernel and
@@ -237,8 +248,8 @@ The adversarial suite is organised by attack category —
 `bypass_attempt`, `budget_exhaustion`, `escalation`, `audit` — plus
 `tests/adversarial/test_required_scenarios.py`, which covers the six
 acceptance scenarios one test each; `tests/bypass/`, which attacks a live
-deployment from a separate OS process; and `tests/isolation/`, which attacks the
-containerised reference runtime from inside the agent's sandbox.
+deployment from a separate OS process; and `tests/adversarial/isolation/`, which
+attacks the containerised reference deployment from inside the agent's sandbox.
 
 ## Layout
 
@@ -247,7 +258,7 @@ src/harness/      contract, capability, policy, decision, request, interceptor,
                   executor, audit, core (Harness), simulation, server, cli, tools
 sdk/python/       harness_client — thin HTTP client
 examples/         basic, simulation, delegation-boundary, adversarial-agent
-deploy/isolated/  reference isolated runtime: compose, netguard, offline images, attack demo
+deploy/          reference isolated deployment: docker-compose.yml, harness/, agent/, network/, attack demo
 policies/         reusable contract templates
 docs/             architecture, contracts, capabilities, delegation, simulation, threat model
 DESIGN.md         the five invariants

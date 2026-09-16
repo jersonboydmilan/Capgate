@@ -26,8 +26,10 @@ class AuditIntegrityError(RuntimeError):
 
 
 class AuditLog:
-    def __init__(self, path: str | Path | None = None, *, include_arguments: bool = True, fsync: bool = False) -> None:
+    def __init__(self, path: str | Path | None = None, *, include_arguments: bool = True, fsync: bool = False, echo: Any = None) -> None:
+        """`echo`: optional text stream that receives a one-line summary of every record (e.g. container logs)."""
         self.path = Path(path) if path else None
+        self._echo = echo
         self.include_arguments = include_arguments
         self._fsync = fsync
         self._lock = threading.Lock()
@@ -59,6 +61,10 @@ class AuditLog:
                         os.fsync(fh.fileno())
             self._records.append(body)
             self._last_hash = body["hash"]
+            if self._echo is not None:
+                keys = ("agent_id", "action", "decision", "reason_code", "credential_error", "outcome")
+                summary = " ".join(f"{k}={body[k]}" for k in keys if body.get(k) is not None)
+                print(f"audit {body['sequence']:>5} {event:<22} {summary}", file=self._echo, flush=True)
             return dict(body)
 
     def records(self) -> list[dict[str, Any]]:

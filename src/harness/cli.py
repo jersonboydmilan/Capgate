@@ -55,6 +55,12 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("serve", help="run the harness HTTP boundary")
     p.add_argument("config")
+    p.add_argument("--host", help="override listen.host")
+    p.add_argument("--port", type=int, help="override listen.port")
+
+    p = sub.add_parser("bootstrap", help="create missing deployment secrets (idempotent)")
+    p.add_argument("--secrets-dir", required=True, help="harness-only secrets: signing_key, token_keyring")
+    p.add_argument("--tool-credential", required=True, help="file shared by harness and tool service")
 
     p = sub.add_parser("token", help="manage short-lived credentials")
     tsub = p.add_subparsers(dest="token_command", required=True)
@@ -69,6 +75,8 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("--role", choices=["agent", "approver"], required=True)
     t.add_argument("--ttl", default="15m", help="e.g. 90s, 15m, 1h (max --max-ttl)")
     t.add_argument("--max-ttl", default="1h")
+    t.add_argument("--issued-at", type=float, help=argparse.SUPPRESS)  # tests: mint already-expired tokens
+    t.add_argument("--out", help="write the token to this file (mode 0444) instead of stdout")
     t = tsub.add_parser("revoke", help="revoke a token until it expires")
     t.add_argument("--keyring", required=True)
     t.add_argument("--state", required=True)
@@ -76,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     try:
-        return {"validate": _validate, "simulate": _run, "enforce": _run, "audit": _audit, "serve": _serve, "token": _token}[args.command](args)
+        return {"validate": _validate, "simulate": _run, "enforce": _run, "audit": _audit, "serve": _serve, "token": _token, "bootstrap": _bootstrap}[args.command](args)
     except (ContractError, TaskError, AuditIntegrityError, ValueError, FileNotFoundError, TokenError) as exc:
         print(f"harness: error: {exc}", file=sys.stderr)
         return 2
@@ -154,13 +162,14 @@ def _serve(args) -> int:
     contracts = [c for source in cfg.get("contracts", []) for c in load_contracts(path.parent / source)]
 
     audit_path = cfg.get("audit")
+    echo = sys.stdout if cfg.get("audit_echo") else None
     signing_key = None
     if cfg.get("signing_key_file") or cfg.get("signing_key_env"):
         signing_key = read_secret(cfg, "signing_key", "signing_key", base=path.parent).encode()
     harness = Harness(
         contracts,
         tools=build_tools(cfg.get("tools"), base=path.parent),
-        audit=AuditLog(path.parent / audit_path if audit_path else None, fsync=True),
+        audit=AuditLog(path.parent / audit_path if audit_path else None, fsync=True, echo=echo),
         signing_key=signing_key,
         state=SQLiteStateStore(path.parent / cfg["state"]) if cfg.get("state") else None,
     )
@@ -174,7 +183,9 @@ def _serve(args) -> int:
         state=harness.state,
     )
     listen = cfg.get("listen") or {}
-    server = HarnessServer(harness, authority, host=listen.get("host", "127.0.0.1"), port=int(listen.get("port", 8700)))
+    host = args.host or listen.get("host", "127.0.0.1")
+    port = args.port or int(listen.get("port", 8700))
+    server = HarnessServer(harness, authority, host=host, port=port)
     print(f"agent harness listening on {server.url} ({len(contracts)} contracts)", flush=True)
     try:
         server.server.serve_forever()
@@ -188,6 +199,29 @@ def _duration(text: str) -> int:
     if text[-1:] in units:
         return int(text[:-1]) * units[text[-1]]
     return int(text)
+
+
+def _bootstrap(args) -> int:
+    import secrets as _secrets
+
+    secrets_dir = Path(args.secrets_dir)
+    secrets_dir.mkdir(parents=True, exist_ok=True)
+    wanted = {
+        secrets_dir / "signing_key": lambda: _secrets.token_urlsafe(32),
+        secrets_dir / "token_keyring": lambda: Keyring.generate().to_json(),
+        Path(args.tool_credential): lambda: _secrets.token_urlsafe(32),
+    }
+    for target, make in wanted.items():
+        if target.exists():
+            print(f"exists   {target}")
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_name(target.name + ".tmp")
+        tmp.write_text(make())
+        tmp.chmod(0o400)
+        tmp.replace(target)
+        print(f"created  {target}")
+    return 0
 
 
 def _token(args) -> int:
@@ -210,7 +244,16 @@ def _token(args) -> int:
         print(f"retired {args.kid}")
     elif args.token_command == "issue":
         authority = TokenAuthority(path, max_ttl_seconds=_duration(args.max_ttl))
-        print(authority.issue(args.sub, args.role, _duration(args.ttl)))
+        token = authority.issue(args.sub, args.role, _duration(args.ttl), issued_at=args.issued_at)
+        if args.out:
+            out = Path(args.out)
+            tmp = out.with_name(out.name + ".tmp")
+            tmp.write_text(token)
+            tmp.chmod(0o444)
+            tmp.replace(out)
+            print(f"issued {args.role} token for {args.sub} -> {out}")
+        else:
+            print(token)
     elif args.token_command == "revoke":
         authority = TokenAuthority(path, state=SQLiteStateStore(args.state))
         claims = authority.revoke(args.token)

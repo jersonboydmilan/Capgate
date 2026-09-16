@@ -1,0 +1,158 @@
+# Reference isolated deployment.
+#
+#   cd deploy
+#   python fetch_artifacts.py                  # once: offline build inputs
+#   docker compose up --build -d harness       # bootstrap secrets, tools, harness
+#   docker compose run --rm agent              # compromised agent, fresh 15-minute token
+#   docker compose logs harness                # one audit line per decision/execution
+#
+#   agent ──(agent_net, internal)──► harness ──(tool_net, internal)──► tools
+#                                       └──(edge)──► host loopback :8080, harness's own egress
+#
+# What the agent can reach: tcp harness:8080. Nothing else — enforced twice:
+#   1. agent_net and tool_net are `internal` (no gateway, no host, no internet);
+#      the agent is attached to agent_net only, so the tool service is not routable.
+#   2. netguard owns the agent's network namespace and installs an iptables
+#      allowlist (policy DROP, ACCEPT tcp harness:8080). The agent joins that
+#      namespace with every capability dropped and cannot change the rules.
+# What the agent holds: one short-lived signed token. Harness secrets live in
+# volumes the agent never mounts; the tool credential in a volume only the
+# harness and tool service mount. Nothing is passed through environment variables.
+
+name: mandate
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  pids_limit: 128
+  tmpfs: ["/tmp:size=16m,noexec,nosuid"]
+
+x-harness-image: &harness-image
+  build:
+    context: ..
+    dockerfile: deploy/harness/Dockerfile
+    args: {BASE_IMAGE: "${BASE_IMAGE:-alpine:latest}"}
+  image: mandate-harness:local
+
+networks:
+  agent_net:
+    internal: true        # agent <-> harness only: no gateway, no host, no internet
+  tool_net:
+    internal: true        # harness <-> tool service only
+  edge: {}                # harness only: host inspection port and the harness's own outbound calls
+
+volumes:
+  harness-data: {}        # audit trail + state (budgets, used permits, approvals, revocations)
+  harness-secrets: {}     # signing key, token keyring — harness only
+  tool-credential: {}     # harness + tool service only
+  agent-credentials: {}   # the agent's current short-lived token
+  tool-data: {}           # tool side-effect ledger (ground truth for tests)
+  decoy-data: {}
+
+services:
+  bootstrap:
+    <<: [*hardening, *harness-image]
+    container_name: ${MANDATE_PREFIX:-mandate}-bootstrap
+    command: ["python3", "-m", "harness.cli", "bootstrap", "--secrets-dir", "/secrets", "--tool-credential", "/tool-credential/tool_credential"]
+    network_mode: none
+    volumes: ["harness-secrets:/secrets", "tool-credential:/tool-credential"]
+
+  tools:
+    <<: [*hardening, *harness-image]
+    container_name: ${MANDATE_PREFIX:-mandate}-tools
+    depends_on:
+      bootstrap: {condition: service_completed_successfully}
+    command: ["python3", "-m", "harness.toolservice", "--host", "0.0.0.0", "--port", "9100",
+              "--credential-file", "/tool-credential/tool_credential", "--ledger", "/data/ledger.jsonl"]
+    networks: [tool_net]
+    volumes: ["tool-credential:/tool-credential:ro", "tool-data:/data"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9100/health', timeout=2)"]
+      interval: 2s
+      retries: 30
+
+  harness:
+    <<: [*hardening, *harness-image]
+    container_name: ${MANDATE_PREFIX:-mandate}-harness
+    depends_on:
+      bootstrap: {condition: service_completed_successfully}
+      tools: {condition: service_healthy}
+    networks: [agent_net, tool_net, edge]
+    ports: ["127.0.0.1:${HARNESS_HOST_PORT:-8080}:8080"]   # host loopback only, for human inspection
+    volumes:
+      - "harness-data:/data"
+      - "harness-secrets:/secrets:ro"
+      - "tool-credential:/tool-credential:ro"
+      - "./config:/config:ro"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/v1/health', timeout=2)"]
+      interval: 2s
+      retries: 30
+
+  # Supervisor step: issue the agent a fresh short-lived token before each run.
+  agent-token:
+    <<: [*hardening, *harness-image]
+    container_name: ${MANDATE_PREFIX:-mandate}-agent-token
+    depends_on:
+      bootstrap: {condition: service_completed_successfully}
+    command: ["python3", "-m", "harness.cli", "token", "issue", "--keyring", "/secrets/token_keyring",
+              "--sub", "researcher", "--role", "agent", "--ttl", "15m", "--max-ttl", "15m", "--out", "/agent-credentials/token"]
+    network_mode: none
+    volumes: ["harness-secrets:/secrets:ro", "agent-credentials:/agent-credentials"]
+
+  # Deliberately misconfigured tool on the agent's own network. Topology alone
+  # would let the agent reach it; the netguard allowlist must not.
+  misattached-tool:
+    <<: [*hardening, *harness-image]
+    container_name: ${MANDATE_PREFIX:-mandate}-misattached-tool
+    command: ["python3", "-m", "harness.toolservice", "--host", "0.0.0.0", "--port", "9100",
+              "--credential-env", "DECOY_CREDENTIAL", "--ledger", "/data/ledger.jsonl"]
+    environment:
+      DECOY_CREDENTIAL: "decoy-credential-not-secret"
+    networks: [agent_net]
+    volumes: ["decoy-data:/data"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9100/health', timeout=2)"]
+      interval: 2s
+      retries: 30
+
+  netguard:
+    build:
+      context: ..
+      dockerfile: deploy/network/Dockerfile
+      args: {BASE_IMAGE: "${BASE_IMAGE:-alpine:latest}"}
+    image: mandate-netguard:local
+    container_name: ${MANDATE_PREFIX:-mandate}-netguard
+    depends_on:
+      harness: {condition: service_healthy}
+      misattached-tool: {condition: service_healthy}
+    environment: {HARNESS_HOST: harness, HARNESS_PORT: "8080"}
+    networks: [agent_net]
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, NET_RAW]
+    read_only: true
+    tmpfs: ["/tmp:size=1m"]
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/netguard-ready"]
+      interval: 1s
+      retries: 60
+
+  agent:
+    <<: *hardening
+    build:
+      context: ..
+      dockerfile: deploy/agent/Dockerfile
+      args: {BASE_IMAGE: "${BASE_IMAGE:-alpine:latest}"}
+    image: mandate-agent:local
+    container_name: ${MANDATE_PREFIX:-mandate}-agent
+    profiles: [agent]
+    depends_on:
+      netguard: {condition: service_healthy}
+      agent-token: {condition: service_completed_successfully}
+    network_mode: "service:netguard"
+    environment:
+      HARNESS_URL: "http://harness:8080"
+      AGENT_TOKEN_FILE: /run/agent/token
+      TOOL_URL: "http://tools:9100"   # assume the attacker knows where the real tool lives
+    volumes: ["agent-credentials:/run/agent:ro"]

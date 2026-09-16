@@ -44,11 +44,11 @@ malicious contract author.
 | Execute a denied/escalated action anyway | Signed, single-use, argument-bound grants | Enforced | `adversarial/unauthorized_tool`, `adversarial/bypass_attempt` |
 | Swap arguments after authorization | Grant binds argument hash | Enforced | `adversarial/argument_violation` |
 | Forge or replay a grant | HMAC signature, single use, expiry | Enforced | `adversarial/scope_expansion`, `bypass_attempt` |
-| Call the tool endpoint directly | Network: agent can reach only `harness:8700`. Credentials: held only by executor | Enforced in the reference isolated runtime; credential layer enforced in any separate-process deployment | `isolation/`, `bypass/test_process_boundary.py` |
-| Open any other socket (internet, host, other containers, raw packets) | Internal networks, iptables allowlist, no capabilities | Enforced in the reference isolated runtime | `isolation/` |
-| Read harness secrets (tool credential, signing key, tokens) | Secrets mounted only into harness/tools; separate PID namespace; read-only FS | Enforced in the reference isolated runtime | `isolation/` (full filesystem, env and `/proc` scan) |
-| Impersonate another agent over HTTP | Identity from verified signed token; body identity ignored | Enforced | `bypass`, `isolation/` |
-| Forge, tamper with, extend or reuse a credential | HMAC-signed claims, verifier TTL cap, expiry, revocation, key rotation | Enforced | `unit/test_identity.py`, `bypass`, `isolation/` (`CRED` checks) |
+| Call the tool endpoint directly | Network: agent can reach only `harness:8700`. Credentials: held only by executor | Enforced in the reference isolated runtime; credential layer enforced in any separate-process deployment | `adversarial/isolation/`, `bypass/test_process_boundary.py` |
+| Open any other socket (internet, host, other containers, raw packets) | Internal networks, iptables allowlist, no capabilities | Enforced in the reference isolated runtime | `adversarial/isolation/` |
+| Read harness secrets (tool credential, signing key, tokens) | Secrets mounted only into harness/tools; separate PID namespace; read-only FS | Enforced in the reference isolated runtime | `adversarial/isolation/` (full filesystem, env and `/proc` scan) |
+| Impersonate another agent over HTTP | Identity from verified signed token; body identity ignored | Enforced | `bypass`, `adversarial/isolation/` |
+| Forge, tamper with, extend or reuse a credential | HMAC-signed claims, verifier TTL cap, expiry, revocation, key rotation | Enforced | `unit/test_identity.py`, `bypass`, `adversarial/isolation/` (`CRED` checks) |
 | Pick a more permissive contract | Server-side binding | Enforced | `adversarial/scope_expansion` |
 | Edit the contract or grant itself capabilities | Frozen contracts, reserved namespaces | Enforced | `adversarial/contract_tampering`, `scope_expansion` |
 | Get another agent to act for it | Non-transitive delegation, messages carry no authority | Enforced | `adversarial/delegation`, `message_injection` |
@@ -74,7 +74,7 @@ harness"** to be true, the deployment must also ensure:
    protected by this design unless (4) holds.
 4. **Egress restricted to the harness.** The agent's network should permit only
    the harness address. This is what protects unauthenticated internal services
-   and the open internet. The reference runtime in `deploy/isolated/` implements
+   and the open internet. The reference deployment in `deploy/` implements
    this with internal Docker networks plus an iptables allowlist and tests it
    from inside the agent sandbox (`pytest -m docker`); other deployments must
    reproduce it.
@@ -83,6 +83,24 @@ A single-process setup (`Harness` used in-process with an agent in the same
 Python interpreter) is a **cooperative** integration: useful for simulation,
 testing and trusted orchestrators, not a security boundary against a
 compromised agent.
+
+## Reference isolated deployment
+
+`deploy/docker-compose.yml` is the deployment these guarantees are tested against
+(`pytest -m docker`, `python deploy/demo.py`). Coverage, precisely:
+
+| Property | Mechanism | Covered |
+|---|---|---|
+| Agent sockets reach only `harness:8080` | `internal` networks (no gateway) + netguard iptables allowlist (OUTPUT policy DROP) in the agent's namespace; agent has no `NET_ADMIN` | Yes — every other destination probed (tool by name/IP, misattached tool on the agent network, other harness ports, IPv4/IPv6 internet, external DNS, UDP, host gateway, Docker bridge, raw sockets) |
+| Each network layer holds on its own | Topology blocks unrouted targets; iptables blocks a reachable misattached tool | Yes — mutation with iptables disabled makes the misattached-tool check fail |
+| Agent cannot read harness secrets | Secrets in volumes not mounted into the agent; separate PID namespace; no Docker socket | Yes — path probes plus a full readable-filesystem, environment and `/proc` scan with a positive control |
+| Agent credential is short-lived and unforgeable | Signed tokens, 15-minute issuance, verifier TTL cap, revocation | Yes — 9 credential attacks |
+| Agent process is unprivileged and immutable | `cap_drop: ALL`, `no-new-privileges`, non-root, read-only root fs, pids limit | Yes |
+| Side effects only via authorize → permit → executor | Tool service requires the executor-only credential; ledger as ground truth | Yes — ledger, decoy ledger, audit correlation, harness log |
+| Kernel / runtime escape | — | **No.** Use gVisor or a microVM runtime |
+| Compromised Docker host or daemon access | — | **No.** The host is trusted |
+| Harness process compromise via its own API bugs | Narrow API, strict parsing, fail-closed errors | **Partially** — tested behaviour only |
+| Multi-host / Kubernetes deployments | — | **No.** Equivalent controls described in `deploy/README.md`, untested |
 
 ## Known limits
 
@@ -116,7 +134,7 @@ compromised agent.
 
 ## Open work, in priority order
 
-1. ~~Reference deployment with egress control and process isolation~~ — done: `deploy/isolated/`.
+1. ~~Reference deployment with egress control and process isolation~~ — done: `deploy/`.
    Next: gVisor/microVM runtime option; Kubernetes NetworkPolicy equivalent.
 2. ~~Persistent state for budgets, approvals and used grants~~ — done (SQLite, single host). Next: multi-host store.
 3. ~~Short-lived, rotatable credentials~~ — done (signed tokens). Next: bind tokens to workload identity (mTLS / SPIFFE).

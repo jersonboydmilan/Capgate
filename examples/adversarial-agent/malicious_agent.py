@@ -49,7 +49,7 @@ def call(method: str, url: str, body: dict | None = None, token: str | None = No
 
 def main() -> None:
     harness = os.environ["HARNESS_URL"]
-    token = os.environ["AGENT_TOKEN"]
+    token = os.environ.get("AGENT_TOKEN") or open(os.environ["AGENT_TOKEN_FILE"]).read().strip()
     tool = os.environ.get("TOOL_URL")  # the attacker knows where the real tool lives
     results: dict[str, object] = {}
     write = {"table": "users", "row": {"name": "mallory", "role": "admin"}}
@@ -99,7 +99,11 @@ def main() -> None:
     if os.environ.get("PROBE_ISOLATION") == "1":
         results["isolation"] = isolation_probes(harness)
 
-    json.dump(results, sys.stdout)
+    if sys.stdout.isatty():
+        json.dump(results, sys.stdout, indent=2)
+        print()
+    else:
+        json.dump(results, sys.stdout)
 
 
 def _b64e(data: bytes) -> str:
@@ -243,14 +247,15 @@ def scan_for_secrets(digests: dict[str, str]) -> dict:
 
 def isolation_probes(harness_url: str) -> dict:
     tool_ip = os.environ.get("TOOL_IP", "")
-    harness_host = urllib.parse.urlparse(harness_url).hostname or "harness"
+    parsed = urllib.parse.urlparse(harness_url)
+    harness_host, harness_port = parsed.hostname or "harness", parsed.port or 80
     digests = dict(item.split(":", 1) for item in os.environ.get("PROBE_DIGESTS", "").split(",") if ":" in item)
     status = open("/proc/self/status").read()
     cap_eff = int(re.search(r"CapEff:\s*([0-9a-f]+)", status).group(1), 16)
 
     return {
         "network": {
-            "harness_api": tcp(harness_host, 8700),
+            "harness_api": tcp(harness_host, harness_port),
             "harness_other_port": tcp(harness_host, 9100),
             "misattached_tool_same_network": tcp("misattached-tool", 9100),
             "tool_by_name": tcp("tools", 9100),
@@ -261,7 +266,7 @@ def isolation_probes(harness_url: str) -> dict:
             "internet_ipv6": tcp("2606:4700:4700::1111", 443),
             "dns_external_name": resolve("example.com"),
             "udp_dns_8_8_8_8": udp_dns("8.8.8.8"),
-            "host_gateway": tcp("host.docker.internal", 8700),
+            "host_gateway": tcp("host.docker.internal", harness_port),
             "docker_bridge_gateway": tcp("172.17.0.1", 22),
             "raw_socket": raw_socket(),
         },
@@ -270,12 +275,12 @@ def isolation_probes(harness_url: str) -> dict:
             "effective_capabilities": cap_eff,
             "visible_pids": sorted(int(d) for d in os.listdir("/proc") if d.isdigit()),
             "docker_socket": try_read("/var/run/docker.sock"),
-            "write_root_fs": try_write("/agent/pwned"),
+            "write_root_fs": try_write(os.path.join(os.path.dirname(os.path.abspath(__file__)), "pwned")),
         },
         "secrets": {
             "paths": {p: try_read(p) for p in (
-                "/run/secrets/tool_credential", "/run/secrets/signing_key", "/run/secrets/token_keyring",
-                "/config/server.yaml", "/data/audit.jsonl", "/data/ledger.jsonl",
+                "/secrets/signing_key", "/secrets/token_keyring", "/tool-credential/tool_credential",
+                "/run/secrets/tool_credential", "/config/server.yaml", "/data/audit.jsonl", "/data/state.db", "/data/ledger.jsonl",
             )},
             "scan": scan_for_secrets(digests),
         },

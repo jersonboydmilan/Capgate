@@ -7,7 +7,7 @@
 set -eu
 
 HARNESS_HOST="${HARNESS_HOST:-harness}"
-HARNESS_PORT="${HARNESS_PORT:-8700}"
+HARNESS_PORT="${HARNESS_PORT:-8080}"
 
 i=0
 until HARNESS_IP="$(getent hosts "$HARNESS_HOST" | awk '{print $1; exit}')" && [ -n "$HARNESS_IP" ]; do
