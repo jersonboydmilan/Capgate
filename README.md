@@ -106,6 +106,18 @@ Simulation needs no infrastructure and uses the exact engine that enforcement
 uses. Write a contract, run your agent's proposals through `simulate`, tune
 the contract, then switch to `harness enforce`.
 
+## Inspect: simulation, audit, escalations, policy
+
+```bash
+python examples/inspect/demo.py      # live local stack; opens the browser
+harness inspect --task task.yaml --audit audit.jsonl --harness-url http://127.0.0.1:8080 --approver-token-file alice.token
+```
+
+A thin local UI: edit a contract and watch the allow/deny/escalate table change;
+browse and verify the hash-chained audit trail; approve or reject pending
+escalations; ask what a hypothetical action would hit and diff two contracts.
+See [docs/inspect.md](docs/inspect.md).
+
 ## The contract
 
 ```yaml
@@ -256,12 +268,13 @@ attacks the containerised reference deployment from inside the agent's sandbox.
 
 ```
 src/harness/      contract, capability, policy, decision, request, interceptor,
-                  executor, audit, core (Harness), simulation, server, cli, tools
+                  executor, audit, core (Harness), simulation, server, cli, tools,
+                  identity, state, inspect/ (local UI)
 sdk/python/       harness_client — thin HTTP client
 examples/         basic, simulation, delegation-boundary, adversarial-agent
 deploy/          reference isolated deployment: docker-compose.yml, harness/, agent/, network/, attack demo
 policies/         reusable contract templates
-docs/             architecture, contracts, capabilities, delegation, simulation, threat model
+docs/             architecture, contracts, capabilities, delegation, simulation, inspect, threat model
 DESIGN.md         the five invariants
 ```
 

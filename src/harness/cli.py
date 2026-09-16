@@ -9,6 +9,7 @@
     harness token retire  --keyring keys.json --kid KID
     harness token issue   --keyring keys.json --sub researcher --role agent --ttl 15m
     harness token revoke  --keyring keys.json --state state.db --token TOKEN
+    harness inspect [--task task.yaml ...] [--audit audit.jsonl] [--harness-url URL --approver-token-file F]
 """
 
 from __future__ import annotations
@@ -58,6 +59,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--host", help="override listen.host")
     p.add_argument("--port", type=int, help="override listen.port")
 
+    p = sub.add_parser("inspect", help="local web UI: simulation, audit trail, escalations, policy")
+    p.add_argument("--task", action="append", default=[], help="task file to offer in the simulation viewer (repeatable)")
+    p.add_argument("--audit", help="audit trail to open in the audit browser")
+    p.add_argument("--harness-url", help="running harness HTTP API, for the escalations view")
+    token_source = p.add_mutually_exclusive_group()
+    token_source.add_argument("--approver-token-file", help="file holding an approver token (re-read on every request)")
+    token_source.add_argument("--approver-token-env", help="environment variable holding an approver token")
+    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--no-open", action="store_true", help="do not open a browser")
+
     p = sub.add_parser("bootstrap", help="create missing deployment secrets (idempotent)")
     p.add_argument("--secrets-dir", required=True, help="harness-only secrets: signing_key, token_keyring")
     p.add_argument("--tool-credential", required=True, help="file shared by harness and tool service")
@@ -84,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     try:
-        return {"validate": _validate, "simulate": _run, "enforce": _run, "audit": _audit, "serve": _serve, "token": _token, "bootstrap": _bootstrap}[args.command](args)
+        return {"validate": _validate, "simulate": _run, "enforce": _run, "audit": _audit, "serve": _serve, "token": _token, "bootstrap": _bootstrap, "inspect": _inspect}[args.command](args)
     except (ContractError, TaskError, AuditIntegrityError, ValueError, FileNotFoundError, TokenError) as exc:
         print(f"harness: error: {exc}", file=sys.stderr)
         return 2
@@ -199,6 +210,32 @@ def _duration(text: str) -> int:
     if text[-1:] in units:
         return int(text[:-1]) * units[text[-1]]
     return int(text)
+
+
+def _inspect(args) -> int:
+    import os
+    import webbrowser
+
+    from .inspect import InspectServer
+
+    token = None
+    if args.approver_token_file:
+        token_path = Path(args.approver_token_file)
+        token = lambda: token_path.read_text(encoding="utf-8").strip()
+    elif args.approver_token_env:
+        env = args.approver_token_env
+        token = lambda: os.environ.get(env, "")
+    if bool(args.harness_url) != bool(token):
+        raise ValueError("--harness-url and an approver token must be given together")
+    server = InspectServer(tasks=args.task, audit_path=args.audit, harness_url=args.harness_url, approver_token=token, port=args.port)
+    print(f"harness inspect on {server.url}  (local only; Ctrl-C to stop)", flush=True)
+    if not args.no_open:
+        webbrowser.open(server.url)
+    try:
+        server.server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    return 0
 
 
 def _bootstrap(args) -> int:
