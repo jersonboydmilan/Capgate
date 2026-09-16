@@ -4,6 +4,11 @@ Records describe decisions and outcomes, never model reasoning. Each record
 carries the hash of the previous one, so deletion, reordering or edits are
 detectable with `verify()`. Writes fail closed: if a record cannot be
 persisted, the exception propagates and the action does not proceed.
+
+With a `path`, records are streamed to disk and not kept in memory: a
+long-running harness holds only the chain head (sequence and last hash).
+Reads (`records`, `query`, `for_decision`) scan the file. Without a path,
+records are kept in memory (tests, simulation).
 """
 
 from __future__ import annotations
@@ -13,7 +18,7 @@ import os
 import threading
 import uuid
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 from .request import canonical_json, sha256_hex
 from .timeutil import utc_now
@@ -33,19 +38,18 @@ class AuditLog:
         self.include_arguments = include_arguments
         self._fsync = fsync
         self._lock = threading.Lock()
-        self._records: list[dict[str, Any]] = []
+        self._memory: list[dict[str, Any]] = []
+        self._count = 0
         self._last_hash = GENESIS
         if self.path and self.path.exists():
-            self._records = _read_jsonl(self.path)
-            verify_chain(self._records)  # never extend a chain that has been tampered with
-            if self._records:
-                self._last_hash = self._records[-1]["hash"]
+            # Never extend a chain that has been tampered with. Streams the file: constant memory.
+            self._count, self._last_hash = verify_chain(iter_records(self.path))
 
     def record(self, event: str, **fields: Any) -> dict[str, Any]:
         with self._lock:
             body = {
                 "record_id": str(uuid.uuid4()),
-                "sequence": len(self._records),
+                "sequence": self._count,
                 "timestamp": utc_now().isoformat(),
                 "event": event,
                 **fields,
@@ -59,7 +63,9 @@ class AuditLog:
                     fh.flush()
                     if self._fsync:
                         os.fsync(fh.fileno())
-            self._records.append(body)
+            else:
+                self._memory.append(body)
+            self._count += 1
             self._last_hash = body["hash"]
             if self._echo is not None:
                 keys = ("agent_id", "action", "decision", "reason_code", "credential_error", "outcome")
@@ -67,23 +73,32 @@ class AuditLog:
                 print(f"audit {body['sequence']:>5} {event:<22} {summary}", file=self._echo, flush=True)
             return dict(body)
 
-    def records(self) -> list[dict[str, Any]]:
+    def iter(self) -> Iterator[dict[str, Any]]:
+        if self.path:
+            if self.path.exists():
+                yield from iter_records(self.path)
+            return
         with self._lock:
-            return [dict(r) for r in self._records]
+            snapshot = list(self._memory)
+        for record in snapshot:
+            yield dict(record)
+
+    def records(self) -> list[dict[str, Any]]:
+        return list(self.iter())
 
     def query(self, **filters: Any) -> list[dict[str, Any]]:
         """Exact-match filter, e.g. query(agent_id="b", decision="deny")."""
-        return [r for r in self.records() if all(r.get(k) == v for k, v in filters.items())]
+        return [r for r in self.iter() if all(r.get(k) == v for k, v in filters.items())]
 
     def for_decision(self, decision_id: str) -> list[dict[str, Any]]:
         return self.query(decision_id=decision_id)
 
     def verify(self) -> bool:
-        verify_chain(self.records())
+        verify_chain(self.iter())
         return True
 
     def __len__(self) -> int:
-        return len(self._records)
+        return self._count
 
 
 def _hash_record(record: dict[str, Any]) -> str:
@@ -91,8 +106,10 @@ def _hash_record(record: dict[str, Any]) -> str:
     return "sha256:" + sha256_hex(canonical_json(body))
 
 
-def verify_chain(records: Iterable[dict[str, Any]]) -> None:
+def verify_chain(records: Iterable[dict[str, Any]]) -> tuple[int, str]:
+    """Verify a chain; return (record count, last hash). Raises AuditIntegrityError at the first bad record."""
     prev = GENESIS
+    count = 0
     for index, record in enumerate(records):
         if record.get("sequence") != index:
             raise AuditIntegrityError(f"record {index}: sequence gap or reordering")
@@ -101,19 +118,22 @@ def verify_chain(records: Iterable[dict[str, Any]]) -> None:
         if record.get("hash") != _hash_record(record):
             raise AuditIntegrityError(f"record {index}: contents modified")
         prev = record["hash"]
+        count = index + 1
+    return count, prev
 
 
-def _read_jsonl(path: Path) -> list[dict[str, Any]]:
-    records = []
-    with path.open(encoding="utf-8") as fh:
-        for line in fh:
+def iter_records(path: Path) -> Iterator[dict[str, Any]]:
+    with Path(path).open(encoding="utf-8") as fh:
+        for number, line in enumerate(fh, start=1):
             if line.strip():
-                records.append(json.loads(line))
-    return records
+                try:
+                    yield json.loads(line)
+                except json.JSONDecodeError:
+                    raise AuditIntegrityError(f"line {number}: not valid JSON") from None
 
 
 def load_audit(path: str | Path, *, verify: bool = True) -> list[dict[str, Any]]:
-    records = _read_jsonl(Path(path))
+    records = list(iter_records(Path(path)))
     if verify:
         verify_chain(records)
     return records
