@@ -70,6 +70,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--no-open", action="store_true", help="do not open a browser")
 
+    p = sub.add_parser("mcp-bridge", help="stdio <-> harness /mcp, for MCP clients that only speak stdio")
+    p.add_argument("--url", required=True, help="e.g. http://proxy:8080/mcp")
+    bridge_token = p.add_mutually_exclusive_group(required=True)
+    bridge_token.add_argument("--token-file", help="the agent's token (re-read per request)")
+    bridge_token.add_argument("--token-env", help="environment variable holding the agent's token")
+
     p = sub.add_parser("bootstrap", help="create missing deployment secrets (idempotent)")
     p.add_argument("--secrets-dir", required=True, help="harness-only secrets: signing_key, token_keyring")
     p.add_argument("--tool-credential", required=True, help="file shared by harness and tool service")
@@ -96,7 +102,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     try:
-        return {"validate": _validate, "simulate": _run, "enforce": _run, "audit": _audit, "serve": _serve, "token": _token, "bootstrap": _bootstrap, "inspect": _inspect}[args.command](args)
+        return {"validate": _validate, "simulate": _run, "enforce": _run, "audit": _audit, "serve": _serve, "token": _token, "bootstrap": _bootstrap, "inspect": _inspect, "mcp-bridge": _mcp_bridge}[args.command](args)
     except (ContractError, TaskError, AuditIntegrityError, ValueError, FileNotFoundError, TokenError) as exc:
         print(f"harness: error: {exc}", file=sys.stderr)
         return 2
@@ -180,7 +186,7 @@ def _serve(args) -> int:
         signing_key = read_secret(cfg, "signing_key", "signing_key", base=path.parent).encode()
     harness = Harness(
         contracts,
-        tools=build_tools(cfg.get("tools"), base=path.parent),
+        tools=build_tools(cfg.get("tools"), base=path.parent, mcp_servers=cfg.get("mcp_servers")),
         audit=AuditLog(path.parent / audit_path if audit_path else None, fsync=True, echo=echo),
         signing_key=signing_key,
         state=SQLiteStateStore(path.parent / cfg["state"]) if cfg.get("state") else None,
@@ -195,6 +201,7 @@ def _serve(args) -> int:
         state=harness.state,
     )
     listen = cfg.get("listen") or {}
+    enable_mcp = cfg.get("mcp", True)
     host = args.host or listen.get("host", "127.0.0.1")
     port = args.port or int(listen.get("port", 8700))
     from .ratelimit import RateLimitConfig
@@ -205,7 +212,11 @@ def _serve(args) -> int:
         transport=args.transport or cfg.get("transport"),
         trusted_proxies=_trusted_proxies(cfg),
     )
-    print(f"agent harness listening on {server.url} ({len(contracts)} contracts, transport={server.transport})", flush=True)
+    if enable_mcp:
+        from .mcp import MCPGateway
+
+        MCPGateway(server.api)
+    print(f"agent harness listening on {server.url} ({len(contracts)} contracts, transport={server.transport}{', mcp=/mcp' if enable_mcp else ''})", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -228,6 +239,15 @@ def _duration(text: str) -> int:
     if text[-1:] in units:
         return int(text[:-1]) * units[text[-1]]
     return int(text)
+
+
+def _mcp_bridge(args) -> int:
+    import os
+
+    from .mcp.bridge import run_bridge, token_from_file
+
+    token = token_from_file(args.token_file) if args.token_file else (lambda: os.environ.get(args.token_env, ""))
+    return run_bridge(args.url, token)
 
 
 def _inspect(args) -> int:

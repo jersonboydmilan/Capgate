@@ -160,7 +160,7 @@ class HttpFetchTool:
             conn.close()
 
 
-def build_tools(spec: Mapping[str, Any] | None, *, base: Path | None = None) -> dict[str, Any]:
+def build_tools(spec: Mapping[str, Any] | None, *, base: Path | None = None, mcp_servers: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Build tools from a config mapping:
 
         tools:
@@ -170,6 +170,7 @@ def build_tools(spec: Mapping[str, Any] | None, *, base: Path | None = None) -> 
           web.fetch: {type: http_fetch}
     """
     tools: dict[str, Any] = {}
+    clients = None
     for action, cfg in (spec or {}).items():
         kind = (cfg or {}).get("type")
         if kind == "echo":
@@ -178,6 +179,15 @@ def build_tools(spec: Mapping[str, Any] | None, *, base: Path | None = None) -> 
             tools[action] = HttpFetchTool()
         elif kind == "endpoint":
             tools[action] = ControlledEndpointTool(cfg["url"], read_secret(cfg, "credential", f"tool {action}", base=base))
+        elif kind == "mcp":
+            from .mcp.upstream import MCPTool, build_mcp_clients
+
+            if clients is None:
+                clients = build_mcp_clients(mcp_servers, base=base)
+            server = cfg.get("server")
+            if server not in clients:
+                raise ValueError(f"tool {action}: unknown mcp server {server!r}")
+            tools[action] = MCPTool(clients[server], cfg.get("tool") or action.rsplit(".", 1)[-1])
         else:
-            raise ValueError(f"tool {action}: unknown type {kind!r} (expected echo, endpoint or http_fetch)")
+            raise ValueError(f"tool {action}: unknown type {kind!r} (expected echo, endpoint, http_fetch or mcp)")
     return tools
