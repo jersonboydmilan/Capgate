@@ -6,7 +6,8 @@ base image plus artifacts fetched here and verified:
 
   * CPython (python-build-standalone, musl) — SHA-256 checked against the release's SHA256SUMS
   * PyYAML (sdist from PyPI)               — SHA-256 checked against PyPI metadata
-  * iptables .apk packages                 — signature checked by `apk` inside the build
+  * uvicorn, h11, click (wheels from PyPI) — SHA-256 checked against PyPI metadata
+  * iptables and nginx .apk packages       — signature checked by `apk` inside the build
 
     python deploy/fetch_artifacts.py
 """
@@ -30,7 +31,10 @@ CACHE = HERE / ".cache"
 PBS_RELEASE = "20260901"
 PYTHON_VERSION = "3.12.14"
 PYYAML_VERSION = "6.0.2"
-APK_PACKAGES = ("iptables", "ip6tables")
+# Pure-Python wheels for the production HTTP transport (verified against PyPI SHA-256).
+WHEELS = {"uvicorn": "0.53.0", "h11": "0.16.0", "click": "8.5.0"}
+# Alpine packages per image; `apk` verifies signatures during the build.
+APK_SETS = {"apk": ("iptables", "ip6tables"), "apk-proxy": ("nginx",)}
 
 
 def fetch(url: str) -> bytes:
@@ -85,6 +89,32 @@ def fetch_pyyaml() -> None:
     print(f"pyyaml    ok      {PYYAML_VERSION} (pure Python)")
 
 
+def fetch_wheels() -> None:
+    import zipfile
+
+    target = CACHE / "pylibs"
+    stamp = target / ".versions"
+    wanted = json.dumps(WHEELS, sort_keys=True)
+    if stamp.exists() and stamp.read_text() == wanted:
+        print("wheels    cached")
+        return
+    shutil.rmtree(target, ignore_errors=True)
+    target.mkdir(parents=True)
+    for name, version in WHEELS.items():
+        meta = json.loads(fetch(f"https://pypi.org/pypi/{name}/{version}/json"))
+        wheel = next(u for u in meta["urls"] if u["packagetype"] == "bdist_wheel" and u["filename"].endswith("py3-none-any.whl"))
+        data = fetch(wheel["url"])
+        if hashlib.sha256(data).hexdigest() != wheel["digests"]["sha256"]:
+            raise SystemExit(f"{name}: checksum mismatch")
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            for member in zf.namelist():
+                if ".dist-info/" in member.split("/", 1)[0] + "/" and not member.endswith(("METADATA", "entry_points.txt")):
+                    continue
+                zf.extract(member, target)
+    stamp.write_text(wanted)
+    print(f"wheels    ok      {', '.join(f'{k} {v}' for k, v in WHEELS.items())}")
+
+
 def parse_apkindex(data: bytes) -> dict[str, dict]:
     with tarfile.open(fileobj=io.BytesIO(data)) as tar:
         text = tar.extractfile("APKINDEX").read().decode()
@@ -99,8 +129,8 @@ def parse_apkindex(data: bytes) -> dict[str, dict]:
     return packages
 
 
-def fetch_apks(arch: str) -> None:
-    target = CACHE / "apk"
+def fetch_apks(arch: str, directory: str, packages: tuple[str, ...]) -> None:
+    target = CACHE / directory
     release = docker("run", "--rm", "alpine:latest", "cat", "/etc/alpine-release")
     installed = set(docker("run", "--rm", "alpine:latest", "sh", "-c", "apk info 2>/dev/null").split())
     branch = "v" + ".".join(release.split(".")[:2])
@@ -114,7 +144,7 @@ def fetch_apks(arch: str) -> None:
             providers.setdefault(token.split("=")[0], []).append(name)
 
     wanted: list[str] = []
-    queue = [p for p in APK_PACKAGES if p in index]
+    queue = [p for p in packages if p in index]
     while queue:
         name = queue.pop()
         if name in wanted or name in installed:
@@ -135,7 +165,7 @@ def fetch_apks(arch: str) -> None:
         filename = f"{name}-{index[name]['V']}.apk"
         (target / filename).write_bytes(fetch(f"{repo}/{filename}"))
     (target / "RELEASE").write_text(release)
-    print(f"apk       ok      alpine {release}: {', '.join(sorted(wanted))}")
+    print(f"{directory:<9} ok      alpine {release}: {', '.join(sorted(wanted))}")
 
 
 def main() -> int:
@@ -143,7 +173,9 @@ def main() -> int:
     arch = machine()
     fetch_python(arch)
     fetch_pyyaml()
-    fetch_apks(arch)
+    fetch_wheels()
+    for directory, packages in APK_SETS.items():
+        fetch_apks(arch, directory, packages)
     return 0
 
 

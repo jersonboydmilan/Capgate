@@ -72,13 +72,16 @@ class Stack:
 
 
 def create_stack() -> Stack:
+    import random
+
     project = f"mandate-test-{uuid.uuid4().hex[:8]}"
-    return Stack(project, {"MANDATE_PREFIX": project, "HARNESS_HOST_PORT": str(_free_port())})
+    subnet = f"172.31.{random.randint(1, 249)}.0/24"  # api_net; distinct per stack so parallel stacks don't collide
+    return Stack(project, {"MANDATE_PREFIX": project, "HARNESS_HOST_PORT": str(_free_port()), "MANDATE_API_SUBNET": subnet})
 
 
 def ensure_artifacts() -> None:
     cache = HERE / ".cache"
-    if not ((cache / "python.tar.gz").exists() and (cache / "yaml").exists() and (cache / "apk").exists()):
+    if not all((cache / name).exists() for name in ("python.tar.gz", "yaml", "apk", "apk-proxy", "pylibs")):
         subprocess.run([sys.executable, str(HERE / "fetch_artifacts.py")], check=True)
 
 
@@ -89,7 +92,7 @@ def run_attack(stack: Stack) -> dict[str, Any]:
     except RuntimeError:
         # Docker Desktop's containerd store occasionally races when parallel builds share layers.
         stack.compose("--profile", "agent", "build")
-    stack.compose("up", "-d", "--wait", "harness", "misattached-tool", "netguard")
+    stack.compose("up", "-d", "--wait", "harness", "proxy", "misattached-tool", "netguard")
     tool_ip = stack.container_ip("tools", "tool_net")
 
     # Read the bootstrapped secrets back only to derive digests for the agent's scanner.
@@ -137,6 +140,7 @@ def run_attack(stack: Stack) -> dict[str, Any]:
         "audit": json.loads(stack.harness_cli("audit", "/data/audit.jsonl", "--json") or "[]"),
         "netguard": stack.compose("logs", "--no-log-prefix", "netguard").stdout,
         "harness_logs": stack.compose("logs", "--no-log-prefix", "harness").stdout,
+        "proxy_logs": stack.compose("logs", "--no-log-prefix", "proxy").stdout,
         "tool_ip": tool_ip,
     }
 
@@ -152,7 +156,9 @@ BLOCKED_TCP = ("refused", "timeout", "dns_failed", "error:")
 
 def checks(result: dict[str, Any]) -> list[tuple[str, str, bool]]:
     a, iso = result["agent"], result["agent"]["isolation"]
-    net, proc, sec = iso["network"], iso["process"], iso["secrets"]
+    net, proc, sec, px = iso["network"], iso["process"], iso["secrets"], iso["proxy"]
+    spoof_records = [r for r in result["audit"] if r.get("event") == "authentication_failed" and r.get("credential_error") == "TOKEN_MALFORMED"]
+    spoof_clients = sorted({r.get("client") for r in spoof_records})
     blocked = lambda v: isinstance(v, str) and v.startswith(BLOCKED_TCP)
     found = sec["scan"]["found"]
     rows = [
@@ -174,7 +180,7 @@ def checks(result: dict[str, Any]) -> list[tuple[str, str, bool]]:
         ("NET   tcp tools:9100 by IP", net["tool_by_ip"], blocked(net["tool_by_ip"])),
         ("NET   harness on a non-API port", net["harness_other_port"], blocked(net["harness_other_port"])),
         ("NET   misattached tool on the agent's own network", net["misattached_tool_same_network"], net["misattached_tool_same_network"] == "refused"),
-        ("NET   egress allowlist installed (default DROP, only harness:8080)", "iptables OUTPUT", "-P OUTPUT DROP" in result["netguard"] and "--dport 8080 -j ACCEPT" in result["netguard"]),
+        ("NET   egress allowlist installed (default DROP, only proxy:8080)", "iptables OUTPUT", "-P OUTPUT DROP" in result["netguard"] and "--dport 8080 -j ACCEPT" in result["netguard"]),
         ("NET   internet tcp 1.1.1.1:443", net["internet_tcp_ip"], blocked(net["internet_tcp_ip"])),
         ("NET   internet tcp example.com:443", net["internet_tcp_name"], blocked(net["internet_tcp_name"])),
         ("NET   internet ipv6", net["internet_ipv6"], blocked(net["internet_ipv6"])),
@@ -186,6 +192,16 @@ def checks(result: dict[str, Any]) -> list[tuple[str, str, bool]]:
         ("NET   http https://example.com", str(net["http_example_com"]), net["http_example_com"] == 0),
         ("NET   http 1.1.1.1", str(net["http_1_1_1_1"]), net["http_1_1_1_1"] == 0),
         ("NET   cloud metadata 169.254.169.254 (http, tcp)", f'{net["cloud_metadata_http"]}, {net["cloud_metadata_tcp"]}', net["cloud_metadata_http"] == 0 and blocked(net["cloud_metadata_tcp"])),
+        # HTTP edge (nginx in front of uvicorn)
+        ("EDGE  harness not reachable directly (only via proxy)", px["harness_direct"], px["harness_direct"] == "dns_failed"),
+        ("EDGE  slow headers (slowloris) connection closed", px["slow_headers"], px["slow_headers"].startswith("closed_after_") and int(px["slow_headers"].split("_")[2].rstrip("s")) <= 15),
+        ("EDGE  1.5MB body refused before the harness", str(px["oversized_body"]), px["oversized_body"] == 413),
+        ("EDGE  unknown path refused", str(px["unknown_path"]), px["unknown_path"] == 404),
+        ("EDGE  encoded path traversal refused", str(px["path_traversal"]), px["path_traversal"] in (400, 404)),
+        ("EDGE  TRACE method refused", str(px["trace_method"]), px["trace_method"] in (403, 405)),
+        ("EDGE  spoofed X-Real-IP ignored (audit shows agent's real address)", ", ".join(map(str, spoof_clients)) or "no record",
+         bool(spoof_clients) and "203.0.113.66" not in spoof_clients and spoof_clients == [px["own_address"]]),
+        ("EDGE  harness served by uvicorn", "transport=uvicorn", "transport=uvicorn" in result["harness_logs"]),
         # process boundary
         ("PROC  effective capabilities", str(proc["effective_capabilities"]), proc["effective_capabilities"] == 0),
         ("PROC  runs as non-root", str(proc["uid"]), proc["uid"] != 0),

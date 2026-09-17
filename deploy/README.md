@@ -1,7 +1,8 @@
 # Reference isolated deployment
 
 A compromised agent that ignores the SDK can open a TCP connection to exactly
-one place: `harness:8080`. It holds one short-lived token and cannot read the
+one place: the edge proxy, `proxy:8080`, which forwards only the documented API
+to the harness. It holds one short-lived token and cannot read the
 harness's secrets. The only way anything happens in the world is
 `authorize → signed permit → executor`.
 
@@ -12,8 +13,9 @@ deploy/
   agent/Dockerfile       agent image: Python, harness_client, malicious_agent.py — nothing else
   agent/malicious_agent.py → examples/adversarial-agent/malicious_agent.py
   network/               netguard: iptables egress allowlist for the agent
+  proxy/                 nginx edge: sizes, timeouts, allowed paths/methods, X-Real-IP
   config/                contracts + server config, mounted read-only into the harness only
-  demo.py                automated attack + 61 checks
+  demo.py                automated attack + 69 checks
   fetch_artifacts.py     verified, host-side download of offline build inputs
 ```
 
@@ -46,32 +48,35 @@ line (`web.search`), and the ledger holds exactly that one side effect.
 ## Run it as tests
 
 ```bash
-python deploy/demo.py                        # build, attack, print 61 checks, tear down
+python deploy/demo.py                        # build, attack, print 69 checks, tear down
 pytest -m docker                             # tests/adversarial/isolation/test_network_boundary.py
 ```
 
 ## Topology
 
 ```
-                 agent_net (internal)                     tool_net (internal)
-┌───────────────────────────────────────────┐    ┌───────────────────────────────────┐
-│  netguard ─ owns agent netns, iptables    │    │                                   │
-│    └ agent (shares netns, 0 capabilities) │    │                                   │
-│         │ tcp :8080 only                  │    │                                   │
-│         ▼                                 │    │                                   │
-│      harness ─────────────────────────────────────► tools (requires tool credential)│
-│         │                                 │    │                                   │
-│   misattached-tool (decoy)                │    │                                   │
-└─────────┼─────────────────────────────────┘    └───────────────────────────────────┘
-          └── edge (bridge, harness only) ── 127.0.0.1:8080 on the host; harness's own egress
+ agent_net (internal)          api_net (internal)         tool_net (internal)
+┌───────────────────────┐    ┌──────────────────────┐    ┌──────────────────────┐
+│ netguard + agent ─────┼─► proxy (nginx) ──────────┼─► harness (uvicorn) ───┼─► tools
+│   tcp proxy:8080 only │    │  sizes, timeouts,     │    │  policy, executor,   │  (tool credential)
+│ misattached-tool      │    │  allowed paths only   │    │  secrets, state      │
+└───────────────────────┘    └──────────────────────┘    └──────────┬───────────┘
+                                                                     └─ edge (harness only): 127.0.0.1:8080 on the host
 ```
+
+- **nginx** terminates agent connections: 10s header/body timeouts, 1MB body,
+  8KB header lines, per-address request and connection limits, `GET`/`POST` on
+  the documented paths only, `X-Real-IP` overwritten with the real peer.
+- **uvicorn** (h11) serves the harness API behind it and believes `X-Real-IP`
+  only from `api_net` (`MANDATE_API_SUBNET`), for per-client limits and audit.
 
 ## What the agent can and cannot reach
 
 | Destination | Agent | Harness | Enforced by |
 |---|---|---|---|
-| `harness:8080` | ✅ | — | the one iptables ACCEPT rule |
-| Other harness ports | ❌ | — | iptables |
+| `proxy:8080` (documented API only) | ✅ | — | the one iptables ACCEPT rule; nginx path/method allowlist |
+| The harness directly | ❌ | — | not on `agent_net` (name does not resolve) |
+| Other proxy ports | ❌ | — | iptables |
 | Tool service (by name or IP) | ❌ | ✅ | agent not on `tool_net`: no route (and iptables) |
 | A tool wrongly attached to the agent's network | ❌ | — | iptables (topology alone would allow it) |
 | Public internet, IPv4/IPv6, external DNS | ❌ | ✅ via `edge` | `internal` network: no gateway (and iptables) |
@@ -102,6 +107,7 @@ baked into an image or generated on the host.
 | The agent cannot read secret material | `SEC *`: every secret path is `not_found`; a scan of all readable files, the environment and `/proc/*/{environ,cmdline}` finds none of the protected secrets by SHA-256; its positive control finds the agent's own token |
 | The agent's credential is limited | `CRED *`: tampered, forged, expired, revoked and over-long tokens → 401 |
 | No privilege, read-only filesystem | `PROC *`: 0 capabilities, UID 20001, only its own PID visible, write → `EROFS` |
+| The HTTP edge bounds and normalises requests | `EDGE *`: slow headers cut at 10s, 1.5MB body → 413 at the proxy, unknown path → 404, `TRACE` → 405, spoofed `X-Real-IP` ignored (audit records the agent's real address), harness served by uvicorn |
 | Side effects happen only through the harness | `PATH *`: tool ledger == `["/web.search"]`, decoy ledger empty, audit chain intact, the harness log's only successful execution is `web.search`, and it correlates to the single `allow` decision |
 
 ## Not claimed
