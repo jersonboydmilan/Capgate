@@ -42,9 +42,10 @@ class Response:
     body: Any
     headers: dict[str, str] = field(default_factory=dict)
     close: bool = False
+    empty: bool = False  # e.g. 202 for a JSON-RPC notification: no body at all
 
     def encode(self) -> bytes:
-        return json.dumps(self.body, default=str, separators=(",", ":")).encode()
+        return b"" if self.empty else json.dumps(self.body, default=str, separators=(",", ":")).encode()
 
 
 class HarnessAPI:
@@ -59,8 +60,8 @@ class HarnessAPI:
         self._approvers = {a for c in harness.contracts.values() for a in c.approvers}
         self._extra_routes: dict[tuple[str, str], Callable[..., Response]] = {}
 
-    def add_route(self, method: str, path: str, handler: Callable[[str, bytes], Response]) -> None:
-        """Mount an extension endpoint (e.g. MCP). Handler receives (agent_id, raw_body) after auth and limits."""
+    def add_route(self, method: str, path: str, handler: Callable[[str, bytes, dict[str, str]], Response]) -> None:
+        """Mount an extension endpoint (e.g. MCP). Handler receives (agent_id, raw_body, headers) after auth and limits."""
         self._extra_routes[(method, path)] = handler
 
     # -- entry point -----------------------------------------------------------
@@ -88,7 +89,7 @@ class HarnessAPI:
         if extra is not None:
             if not agent:
                 return Response(404, {"error": "not found"})
-            return extra(agent, body or b"")
+            return extra(agent, body or b"", headers)
 
         if method == "GET":
             if path == "/v1/messages" and agent:

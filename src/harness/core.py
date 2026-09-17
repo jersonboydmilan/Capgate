@@ -183,6 +183,12 @@ class Harness:
         contract_id = self._interceptor.bindings.get(agent_id)
         return self._interceptor.contracts.get(contract_id) if contract_id else None
 
+    def tool_metadata(self, action: str) -> dict | None:
+        """Descriptive metadata a tool offers about itself (e.g. an upstream MCP tool's schema)."""
+        tool = self._executor._tools.get(action)
+        describe = getattr(tool, "metadata", None)
+        return describe() if callable(describe) else None
+
     def is_agent(self, agent_id: str) -> bool:
         return agent_id in self._interceptor.bindings
 
