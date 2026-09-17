@@ -58,6 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("config")
     p.add_argument("--host", help="override listen.host")
     p.add_argument("--port", type=int, help="override listen.port")
+    p.add_argument("--transport", choices=["uvicorn", "stdlib"], help="HTTP transport (default: uvicorn if installed)")
 
     p = sub.add_parser("inspect", help="local web UI: simulation, audit trail, escalations, policy")
     p.add_argument("--task", action="append", default=[], help="task file to offer in the simulation viewer (repeatable)")
@@ -198,10 +199,15 @@ def _serve(args) -> int:
     port = args.port or int(listen.get("port", 8700))
     from .ratelimit import RateLimitConfig
 
-    server = HarnessServer(harness, authority, host=host, port=port, rate_limit=RateLimitConfig.from_mapping(cfg.get("rate_limit")))
-    print(f"agent harness listening on {server.url} ({len(contracts)} contracts)", flush=True)
+    server = HarnessServer(
+        harness, authority, host=host, port=port,
+        rate_limit=RateLimitConfig.from_mapping(cfg.get("rate_limit")),
+        transport=args.transport or cfg.get("transport"),
+        trusted_proxies=cfg.get("trusted_proxies"),
+    )
+    print(f"agent harness listening on {server.url} ({len(contracts)} contracts, transport={server.transport})", flush=True)
     try:
-        server.server.serve_forever()
+        server.serve_forever()
     except KeyboardInterrupt:
         pass
     return 0

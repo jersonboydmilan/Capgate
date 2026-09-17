@@ -277,6 +277,8 @@ class Harness:
         has no input through which it could be.
         """
         try:
+            if arguments is not None and not isinstance(arguments, Mapping):
+                raise MalformedRequest("arguments must be a mapping")
             req = DelegationRequest(sender, recipient, action, dict(arguments or {}), contract_id)
             stage1 = req.delegation_request()
         except MalformedRequest as exc:
