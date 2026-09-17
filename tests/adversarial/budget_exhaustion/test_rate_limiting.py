@@ -39,9 +39,9 @@ def post(url, token, body):
                                  headers={"Content-Type": "application/json", **({"Authorization": f"Bearer {token}"} if token else {})})
     try:
         with urllib.request.urlopen(req) as resp:
-            return resp.status, dict(resp.headers)
+            return resp.status, {k.lower(): v for k, v in resp.headers.items()}
     except urllib.error.HTTPError as exc:
-        return exc.code, dict(exc.headers)
+        return exc.code, {k.lower(): v for k, v in exc.headers.items()}
 
 
 @pytest.fixture
@@ -61,7 +61,7 @@ def test_flooding_principal_is_throttled_without_starving_others(stack):
     statuses = [post(server.url, a, {"action": "web.search", "arguments": {"q": i}})[0] for i in range(12)]
     assert statuses[:5] == [200] * 5 and set(statuses[5:]) == {429}
     status, headers = post(server.url, a, {"action": "web.search", "arguments": {}})
-    assert status == 429 and int(headers["Retry-After"]) >= 1
+    assert status == 429 and int(headers["retry-after"]) >= 1
     assert post(server.url, b, {"action": "web.search", "arguments": {}})[0] == 200  # other agents unaffected
 
     decisions = harness.audit.query(event="decision", agent_id="agent-a")
