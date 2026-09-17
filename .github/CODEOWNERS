@@ -1,0 +1,9 @@
+# Default owner for everything in the repo.
+* @jersonboydmilan
+
+# The invariants and the boundary itself: change with care.
+/DESIGN.md            @jersonboydmilan
+/docs/threat-model.md @jersonboydmilan
+/src/capgate/policy.py     @jersonboydmilan
+/src/capgate/executor.py   @jersonboydmilan
+/src/capgate/api.py        @jersonboydmilan

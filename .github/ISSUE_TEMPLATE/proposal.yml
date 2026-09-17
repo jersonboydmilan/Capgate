@@ -1,0 +1,25 @@
+name: Proposal / feature
+description: Propose a capability, integration, or change. Keep the surface small.
+labels: [proposal]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What can't be done today, or what is awkward?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      description: Capgate is infrastructure under an existing stack, not a framework.
+      options:
+        - label: This does not turn Capgate into an orchestration layer, DSL, model provider, or bundled datastore.
+        - label: I have considered whether this affects any of the five invariants (DESIGN.md).
