@@ -32,7 +32,7 @@ unable to reach a tool.
 - [The contract](#the-contract) · [The API](#the-api) · [Delegation](#delegation-does-not-transfer-authority)
 - [What is actually enforced](#what-is-actually-enforced) · [MCP](#mcp-agents-call-in-through-the-boundary)
 - [Audit trail](#audit-trail) · [Tests](#tests) · [Status](#status)
-- Design: [DESIGN.md](DESIGN.md) (the five invariants) · [docs/threat-model.md](docs/threat-model.md) · [SECURITY.md](SECURITY.md)
+- Design: [DESIGN.md](DESIGN.md) (the five invariants) · [docs/threat-model.md](docs/threat-model.md) · [Roadmap](docs/roadmap.md) · [SECURITY.md](SECURITY.md)
 
 ## The boundary, under attack
 
