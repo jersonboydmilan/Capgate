@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up Python ${{ matrix.python }}
+        run: uv python install ${{ matrix.python }}
+      - name: Install
+        run: uv pip install --system -e ".[dev]"
+      - name: Unit, integration, adversarial, fuzz (stdlib transport)
+        run: pytest -q -p no:randomly
+        env:
+          HARNESS_HTTP_TRANSPORT: stdlib
+      - name: Full suite on the production transport (uvicorn)
+        run: pytest -q -p no:randomly
+        env:
+          HARNESS_HTTP_TRANSPORT: uvicorn
+
+  fuzz-deep:
+    name: deep fuzz (nightly / on demand)
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install 3.12
+      - run: uv pip install --system -e ".[dev]"
+      - name: Deep property-based fuzzing
+        run: pytest -q tests/fuzz
+        env:
+          HYPOTHESIS_PROFILE: deep
+
+  isolation:
+    name: docker isolation boundary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv pip install --system -e ".[dev]"
+      - name: Fetch offline build artifacts
+        run: python deploy/fetch_artifacts.py
+      - name: Attack the containerised deployment from inside the agent sandbox
+        run: pytest -q -m docker tests/adversarial/isolation
