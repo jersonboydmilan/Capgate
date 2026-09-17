@@ -265,10 +265,14 @@ def _json_object(body: bytes | None) -> dict | None:
     if body is None or len(body) > MAX_BODY:
         return None
     try:
-        data = json.loads(body or b"{}")
+        data = json.loads(body or b"{}", parse_constant=_reject_constant)
     except (ValueError, UnicodeDecodeError, RecursionError):
         return None
     return data if isinstance(data, dict) else None
+
+
+def _reject_constant(name: str) -> Any:
+    raise ValueError(f"non-standard JSON constant {name}")  # NaN/Infinity cannot be audited canonically
 
 
 def _arguments(body: Mapping[str, Any]) -> Any:
