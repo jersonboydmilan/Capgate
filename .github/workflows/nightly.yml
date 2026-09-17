@@ -7,13 +7,15 @@ on:
 
 jobs:
   deep-fuzz:
+    name: deep property-based fuzzing
     runs-on: ubuntu-latest
+    env:
+      HYPOTHESIS_PROFILE: deep
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv python install 3.12
-      - run: uv pip install --system -e ".[dev]"
-      - name: Deep property-based fuzzing (thousands of examples per property)
-        run: pytest -q tests/fuzz
-        env:
-          HYPOTHESIS_PROFILE: deep
+      - run: |
+          uv venv --python 3.12
+          uv pip install -e ".[dev]"
+      - name: Thousands of examples per property
+        run: uv run --no-sync pytest -q tests/fuzz
