@@ -12,7 +12,7 @@ jobs:
     env:
       HYPOTHESIS_PROFILE: deep
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v5
       - run: |
           uv venv --python 3.12
