@@ -2,7 +2,7 @@
 
 import dataclasses
 
-from harness import Message, ReasonCode
+from capgate import Message, ReasonCode
 from helpers import SpyTool, delegation_contracts, make_harness
 
 INJECTION = (

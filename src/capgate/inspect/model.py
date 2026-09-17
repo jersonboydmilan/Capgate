@@ -1,4 +1,4 @@
-"""Pure functions behind `harness inspect`: simulate, explain, grants, diff, audit views.
+"""Pure functions behind `capgate inspect`: simulate, explain, grants, diff, audit views.
 
 Nothing here touches the network or mutates authority state, so every view is
 safe to recompute on each keystroke.

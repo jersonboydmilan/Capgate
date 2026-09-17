@@ -3,7 +3,7 @@ requires = ["hatchling>=1.21"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agent-harness"
+name = "capgate"
 version = "0.1.0"
 description = "Authority management for autonomous software agents: the agent proposes, the harness authorizes, the executor acts."
 readme = "README.md"
@@ -16,10 +16,10 @@ server = ["uvicorn>=0.30"]
 dev = ["pytest>=8.0", "hypothesis>=6.100", "uvicorn>=0.30", "mcp>=1.9"]
 
 [project.scripts]
-harness = "harness.cli:main"
+capgate = "capgate.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/harness", "sdk/python/harness_client"]
+packages = ["src/capgate", "sdk/python/capgate_client"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

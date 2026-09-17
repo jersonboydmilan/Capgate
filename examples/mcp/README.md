@@ -2,7 +2,7 @@
 
 Any MCP-speaking agent can talk to the harness, and every tool call it makes is
 authorized before it runs. The agent's identity and contract come from its
-harness token, not from anything in the MCP messages.
+capgate token, not from anything in the MCP messages.
 
 ```
 MCP client ──/mcp (bearer token)──► harness: authorize ─► permit ─► executor ─► tool
@@ -31,8 +31,8 @@ drives it with the official MCP SDK client:
 Claude Code / Claude Desktop and other clients that speak MCP over stdio:
 
 ```bash
-harness token issue --keyring keys.json --sub researcher --role agent --ttl 15m --out agent.token
-harness mcp-bridge --url http://127.0.0.1:8080/mcp --token-file agent.token
+capgate token issue --keyring keys.json --sub researcher --role agent --ttl 15m --out agent.token
+capgate mcp-bridge --url http://127.0.0.1:8080/mcp --token-file agent.token
 ```
 
 Configure that command as an MCP server in the client. The bridge holds only the

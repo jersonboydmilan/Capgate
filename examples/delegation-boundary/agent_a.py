@@ -5,7 +5,7 @@
 
 from pathlib import Path
 
-from harness import Harness, load_contracts
+from capgate import Harness, load_contracts
 
 from agent_b import AgentB
 

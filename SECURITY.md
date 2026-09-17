@@ -1,6 +1,6 @@
 # Security policy
 
-Agent Harness is a runtime **authority boundary** for autonomous agents: the
+Capgate is a runtime **authority boundary** for autonomous agents: the
 agent proposes, the harness authorizes, the executor acts. Its whole purpose is
 to hold under a hostile agent, so security reports are the most valuable
 contribution you can make.

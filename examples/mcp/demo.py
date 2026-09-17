@@ -6,11 +6,11 @@
 import asyncio
 from pathlib import Path
 
-from harness import AuditLog, Harness, load_contracts
-from harness.identity import Keyring, TokenAuthority
-from harness.mcp import MCPGateway
-from harness.server import HarnessServer
-from harness.tools import EchoTool
+from capgate import AuditLog, Harness, load_contracts
+from capgate.identity import Keyring, TokenAuthority
+from capgate.mcp import MCPGateway
+from capgate.server import HarnessServer
+from capgate.tools import EchoTool
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -44,7 +44,7 @@ async def main() -> None:
                 ("agent-delegate", {"to": "writer", "action": "docs.write", "arguments": {"title": "Summary"}}),
             ]:
                 result = await client.call_tool(name, args)
-                meta = (result.meta or {}).get("harness", {})
+                meta = (result.meta or {}).get("capgate", {})
                 verdict = "ERROR" if result.is_error else "OK"
                 print(f"  {name:<16} {verdict:<6} {(meta.get('reason_code') or meta.get('decision') or ''):<20} {result.content[0].text[:60]}")
     finally:

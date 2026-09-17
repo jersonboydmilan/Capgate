@@ -2,8 +2,8 @@
 
 import pytest
 
-from harness import ActionRequest, ExecutionRefused, ReasonCode
-from harness.executor import ExecutionGrant
+from capgate import ActionRequest, ExecutionRefused, ReasonCode
+from capgate.executor import ExecutionGrant
 from helpers import SpyTool, delegation_contracts, make_harness
 
 

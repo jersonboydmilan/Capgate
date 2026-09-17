@@ -244,7 +244,7 @@ def render(report: Report, *, stream=None, verbose: bool = False) -> str:
     multi = len(agents) > 1
     enforce = report.mode is Mode.ENFORCE
 
-    title = "AGENT HARNESS — " + ("ENFORCEMENT" if enforce else "SIMULATION")
+    title = "CAPGATE — " + ("ENFORCEMENT" if enforce else "SIMULATION")
     lines = [paint(title, "1"), ""]
     lines.append("Contract: " + ", ".join(c.contract_id for c in report.task.contracts))
     lines.append(("Agents: " if multi else "Agent: ") + ", ".join(agents))

@@ -23,7 +23,7 @@
 # volumes the agent never mounts; the tool credential in a volume only the
 # harness and tool service mount. Nothing is passed through environment variables.
 
-name: mandate
+name: capgate
 
 x-hardening: &hardening
   read_only: true
@@ -37,7 +37,7 @@ x-harness-image: &harness-image
     context: ..
     dockerfile: deploy/harness/Dockerfile
     args: {BASE_IMAGE: "${BASE_IMAGE:-alpine:latest}"}
-  image: mandate-harness:local
+  image: capgate-harness:local
 
 networks:
   agent_net:
@@ -45,7 +45,7 @@ networks:
   api_net:
     internal: true        # proxy <-> harness only; fixed subnet = harness trusted_proxies
     ipam:
-      config: [{subnet: "${MANDATE_API_SUBNET:-172.31.250.0/24}"}]
+      config: [{subnet: "${CAPGATE_API_SUBNET:-172.31.250.0/24}"}]
   tool_net:
     internal: true        # harness <-> tool service only
   edge: {}                # harness only: host inspection port and the harness's own outbound calls
@@ -61,17 +61,17 @@ volumes:
 services:
   bootstrap:
     <<: [*hardening, *harness-image]
-    container_name: ${MANDATE_PREFIX:-mandate}-bootstrap
-    command: ["python3", "-m", "harness.cli", "bootstrap", "--secrets-dir", "/secrets", "--tool-credential", "/tool-credential/tool_credential"]
+    container_name: ${CAPGATE_PREFIX:-capgate}-bootstrap
+    command: ["python3", "-m", "capgate.cli", "bootstrap", "--secrets-dir", "/secrets", "--tool-credential", "/tool-credential/tool_credential"]
     network_mode: none
     volumes: ["harness-secrets:/secrets", "tool-credential:/tool-credential"]
 
   tools:
     <<: [*hardening, *harness-image]
-    container_name: ${MANDATE_PREFIX:-mandate}-tools
+    container_name: ${CAPGATE_PREFIX:-capgate}-tools
     depends_on:
       bootstrap: {condition: service_completed_successfully}
-    command: ["python3", "-m", "harness.toolservice", "--host", "0.0.0.0", "--port", "9100",
+    command: ["python3", "-m", "capgate.toolservice", "--host", "0.0.0.0", "--port", "9100",
               "--credential-file", "/tool-credential/tool_credential", "--ledger", "/data/ledger.jsonl"]
     networks: [tool_net]
     volumes: ["tool-credential:/tool-credential:ro", "tool-data:/data"]
@@ -82,14 +82,14 @@ services:
 
   harness:
     <<: [*hardening, *harness-image]
-    container_name: ${MANDATE_PREFIX:-mandate}-harness
+    container_name: ${CAPGATE_PREFIX:-capgate}-harness
     depends_on:
       bootstrap: {condition: service_completed_successfully}
       tools: {condition: service_healthy}
     environment:
-      MANDATE_API_SUBNET: "${MANDATE_API_SUBNET:-172.31.250.0/24}"
+      CAPGATE_API_SUBNET: "${CAPGATE_API_SUBNET:-172.31.250.0/24}"
     networks: [api_net, tool_net, edge]
-    ports: ["127.0.0.1:${HARNESS_HOST_PORT:-8080}:8080"]   # host loopback only, for human inspection
+    ports: ["127.0.0.1:${CAPGATE_HOST_PORT:-8080}:8080"]   # host loopback only, for human inspection
     volumes:
       - "harness-data:/data"
       - "harness-secrets:/secrets:ro"
@@ -106,8 +106,8 @@ services:
       context: ..
       dockerfile: deploy/proxy/Dockerfile
       args: {BASE_IMAGE: "${BASE_IMAGE:-alpine:latest}"}
-    image: mandate-proxy:local
-    container_name: ${MANDATE_PREFIX:-mandate}-proxy
+    image: capgate-proxy:local
+    container_name: ${CAPGATE_PREFIX:-capgate}-proxy
     depends_on:
       harness: {condition: service_healthy}
     networks: [agent_net, api_net]
@@ -120,10 +120,10 @@ services:
   # Supervisor step: issue the agent a fresh short-lived token before each run.
   agent-token:
     <<: [*hardening, *harness-image]
-    container_name: ${MANDATE_PREFIX:-mandate}-agent-token
+    container_name: ${CAPGATE_PREFIX:-capgate}-agent-token
     depends_on:
       bootstrap: {condition: service_completed_successfully}
-    command: ["python3", "-m", "harness.cli", "token", "issue", "--keyring", "/secrets/token_keyring",
+    command: ["python3", "-m", "capgate.cli", "token", "issue", "--keyring", "/secrets/token_keyring",
               "--sub", "researcher", "--role", "agent", "--ttl", "15m", "--max-ttl", "15m", "--out", "/agent-credentials/token"]
     network_mode: none
     volumes: ["harness-secrets:/secrets:ro", "agent-credentials:/agent-credentials"]
@@ -132,8 +132,8 @@ services:
   # would let the agent reach it; the netguard allowlist must not.
   misattached-tool:
     <<: [*hardening, *harness-image]
-    container_name: ${MANDATE_PREFIX:-mandate}-misattached-tool
-    command: ["python3", "-m", "harness.toolservice", "--host", "0.0.0.0", "--port", "9100",
+    container_name: ${CAPGATE_PREFIX:-capgate}-misattached-tool
+    command: ["python3", "-m", "capgate.toolservice", "--host", "0.0.0.0", "--port", "9100",
               "--credential-env", "DECOY_CREDENTIAL", "--ledger", "/data/ledger.jsonl"]
     environment:
       DECOY_CREDENTIAL: "decoy-credential-not-secret"
@@ -149,12 +149,12 @@ services:
       context: ..
       dockerfile: deploy/network/Dockerfile
       args: {BASE_IMAGE: "${BASE_IMAGE:-alpine:latest}"}
-    image: mandate-netguard:local
-    container_name: ${MANDATE_PREFIX:-mandate}-netguard
+    image: capgate-netguard:local
+    container_name: ${CAPGATE_PREFIX:-capgate}-netguard
     depends_on:
       proxy: {condition: service_healthy}
       misattached-tool: {condition: service_healthy}
-    environment: {HARNESS_HOST: proxy, HARNESS_PORT: "8080"}
+    environment: {CAPGATE_HOST: proxy, CAPGATE_PORT: "8080"}
     networks: [agent_net]
     cap_drop: [ALL]
     cap_add: [NET_ADMIN, NET_RAW]
@@ -171,15 +171,15 @@ services:
       context: ..
       dockerfile: deploy/agent/Dockerfile
       args: {BASE_IMAGE: "${BASE_IMAGE:-alpine:latest}"}
-    image: mandate-agent:local
-    container_name: ${MANDATE_PREFIX:-mandate}-agent
+    image: capgate-agent:local
+    container_name: ${CAPGATE_PREFIX:-capgate}-agent
     profiles: [agent]
     depends_on:
       netguard: {condition: service_healthy}
       agent-token: {condition: service_completed_successfully}
     network_mode: "service:netguard"
     environment:
-      HARNESS_URL: "http://proxy:8080"
+      CAPGATE_URL: "http://proxy:8080"
       AGENT_TOKEN_FILE: /run/agent/token
       TOOL_URL: "http://tools:9100"   # assume the attacker knows where the real tool lives
       PROBE_ISOLATION: "1"             # also probe network egress, privileges and secret paths

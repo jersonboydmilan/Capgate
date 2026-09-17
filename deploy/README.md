@@ -10,7 +10,7 @@ harness's secrets. The only way anything happens in the world is
 deploy/
   docker-compose.yml     services, networks, volumes, hardening
   harness/Dockerfile     harness + tool-service image
-  agent/Dockerfile       agent image: Python, harness_client, malicious_agent.py — nothing else
+  agent/Dockerfile       agent image: Python, capgate_client, malicious_agent.py — nothing else
   agent/malicious_agent.py → examples/adversarial-agent/malicious_agent.py
   network/               netguard: iptables egress allowlist for the agent
   proxy/                 nginx edge: sizes, timeouts, allowed paths/methods, X-Real-IP
@@ -68,7 +68,7 @@ pytest -m docker                             # tests/adversarial/isolation/test_
   8KB header lines, per-address request and connection limits, `GET`/`POST` on
   the documented paths only, `X-Real-IP` overwritten with the real peer.
 - **uvicorn** (h11) serves the harness API behind it and believes `X-Real-IP`
-  only from `api_net` (`MANDATE_API_SUBNET`), for per-client limits and audit.
+  only from `api_net` (`CAPGATE_API_SUBNET`), for per-client limits and audit.
 
 ## What the agent can and cannot reach
 

@@ -1,4 +1,4 @@
-from harness import AuditLog, Harness, ReasonCode, load_contract
+from capgate import AuditLog, Harness, ReasonCode, load_contract
 from helpers import FakeClock
 
 
@@ -43,7 +43,7 @@ def test_contracts_view_is_a_copy():
 
 def test_agent_cannot_be_bound_to_two_contracts():
     import pytest
-    from harness import ContractError, TaskContract
+    from capgate import ContractError, TaskContract
 
     a = TaskContract.from_dict({"contract_id": "a", "goal": "g", "max_steps": 50, "agent": "x", "allowed_tools": ["web.search"]})
     b = TaskContract.from_dict({"contract_id": "b", "goal": "g", "max_steps": 50, "agent": "x", "allowed_tools": ["database.write"]})
@@ -53,6 +53,6 @@ def test_agent_cannot_be_bound_to_two_contracts():
 
 def load_contract_from_text(text):
     import yaml
-    from harness import TaskContract
+    from capgate import TaskContract
 
     return TaskContract.from_dict(yaml.safe_load(text))

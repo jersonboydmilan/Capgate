@@ -4,7 +4,7 @@ contract (YAML) → proposal → deterministic decision → enforced execution �
 
 import pytest
 
-from harness import AuditLog, ExecutionRefused, Harness, load_contract, load_audit
+from capgate import AuditLog, ExecutionRefused, Harness, load_contract, load_audit
 from helpers import SpyTool
 
 CONTRACT = """

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from harness import AuditLog, Harness, TaskContract
+from capgate import AuditLog, Harness, TaskContract
 
 T0 = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
 

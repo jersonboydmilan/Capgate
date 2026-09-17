@@ -1,11 +1,11 @@
-"""A live local stack for `harness inspect`: harness API, some agent traffic, pending escalations.
+"""A live local stack for `capgate inspect`: harness API, some agent traffic, pending escalations.
 
     python examples/inspect/demo.py            # then open the printed URL
 
 Starts, in one process:
   * a harness HTTP API on a free port, using examples/simulation/contract.yaml
   * agent traffic through it: allowed, denied, escalated and forged-credential requests
-  * harness inspect, wired to that harness with an approver token for `alice`
+  * capgate inspect, wired to that harness with an approver token for `alice`
 
 Everything lives in a temporary directory printed at start-up.
 """
@@ -20,12 +20,12 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
-from harness import AuditLog, Harness, load_contracts
-from harness.identity import Keyring, TokenAuthority
-from harness.inspect import InspectServer
-from harness.server import HarnessServer
-from harness.state import SQLiteStateStore
-from harness.tools import EchoTool
+from capgate import AuditLog, Harness, load_contracts
+from capgate.identity import Keyring, TokenAuthority
+from capgate.inspect import InspectServer
+from capgate.server import HarnessServer
+from capgate.state import SQLiteStateStore
+from capgate.tools import EchoTool
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -46,7 +46,7 @@ def main() -> None:
     parser.add_argument("--no-open", action="store_true")
     args = parser.parse_args()
 
-    work = Path(tempfile.mkdtemp(prefix="harness-inspect-"))
+    work = Path(tempfile.mkdtemp(prefix="capgate-inspect-"))
     contracts = load_contracts(ROOT / "examples/simulation/contract.yaml")
     tools = {name: EchoTool() for name in ("web.search", "web.fetch", "docs.write")}
     harness = Harness(contracts, tools=tools, audit=AuditLog(work / "audit.jsonl"), state=SQLiteStateStore(work / "state.db"))
@@ -80,7 +80,7 @@ def main() -> None:
     )
     print(f"harness API      {api.url}")
     print(f"working dir      {work}")
-    print(f"harness inspect  {inspect.url}   (Ctrl-C to stop)", flush=True)
+    print(f"capgate inspect  {inspect.url}   (Ctrl-C to stop)", flush=True)
     if not args.no_open:
         webbrowser.open(inspect.url)
     try:

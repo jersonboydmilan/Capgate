@@ -2,7 +2,7 @@
 
 import pytest
 
-from harness import ReasonCode
+from capgate import ReasonCode
 from helpers import SpyTool, make_harness
 
 
@@ -48,7 +48,7 @@ def test_smuggled_extra_argument_denied():
 
 def test_arguments_cannot_be_swapped_after_authorization():
     """TOCTOU: the grant binds the exact argument hash."""
-    from harness import ActionRequest, ExecutionRefused
+    from capgate import ActionRequest, ExecutionRefused
 
     spy = SpyTool()
     harness = make_harness(tools={"web.fetch": spy})

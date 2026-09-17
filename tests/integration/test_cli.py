@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from harness.cli import main
+from capgate.cli import main
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_simulate_readme_demo(capsys):
     assert main(["simulate", str(ROOT / "examples/simulation/task.yaml")]) == 0
     out = capsys.readouterr().out
-    assert "AGENT HARNESS — SIMULATION" in out
+    assert "CAPGATE — SIMULATION" in out
     for line in ["01  web.search", "03  database.read", "04  agent.delegate"]:
         assert line in out
     assert "Allowed:      3" in out and "Denied:       1" in out and "Escalated:    1" in out

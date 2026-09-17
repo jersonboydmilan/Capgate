@@ -1,18 +1,18 @@
-<h1 align="center">Agent Harness</h1>
+<h1 align="center">Capgate</h1>
 
 <p align="center"><b>Authority management for autonomous software agents.</b></p>
 
 <p align="center"><i>The agent proposes. The harness authorizes. The executor acts.</i></p>
 
 <p align="center">
-  <a href="https://github.com/jersonboydmilan/Agent-Harness/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/jersonboydmilan/Agent-Harness/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/jersonboydmilan/capgate/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/jersonboydmilan/capgate/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%E2%80%933.13-blue">
   <img alt="Tests" src="https://img.shields.io/badge/tests-262%20%2B%2015%20docker-brightgreen">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-informational">
   <img alt="Status" src="https://img.shields.io/badge/status-research%20preview-orange">
 </p>
 
-Agent Harness is a runtime enforcement boundary that sits underneath your
+Capgate is a runtime enforcement boundary that sits underneath your
 existing agent stack. Every consequential action an agent takes — a tool call,
 a message to another agent, a request that another agent act — is a structured
 proposal that passes through one deterministic, deny-by-default policy engine
@@ -23,7 +23,7 @@ It is not an agent framework, a prompt library, or a model wrapper. It does not
 ask the model to follow rules; it makes unauthorized actions structurally
 unable to reach a tool.
 
-![Agent Harness architecture](docs/assets/agent-harness-diagram.png)
+![Capgate architecture](docs/assets/capgate-diagram.png)
 
 ## Contents
 
@@ -55,7 +55,7 @@ python deploy/demo.py                   # ~1 minute
 ```
 
 ```
-AGENT HARNESS — COMPROMISED AGENT IN ISOLATED RUNTIME
+CAPGATE — COMPROMISED AGENT IN ISOLATED RUNTIME
 
   PASS  HTTP  direct call to tool endpoint (no auth)                        0
   PASS  HTTP  out-of-contract action via harness                            [403, 'TOOL_NOT_ALLOWED']
@@ -93,11 +93,11 @@ two network layers, and what is *not* claimed:
 
 ```bash
 pip install -e .
-harness simulate examples/simulation/task.yaml
+capgate simulate examples/simulation/task.yaml
 ```
 
 ```
-AGENT HARNESS — SIMULATION
+CAPGATE — SIMULATION
 
 Contract: research-v1
 Agent: researcher
@@ -121,13 +121,13 @@ No external actions were executed.
 
 Simulation needs no infrastructure and uses the exact engine that enforcement
 uses. Write a contract, run your agent's proposals through `simulate`, tune
-the contract, then switch to `harness enforce`.
+the contract, then switch to `capgate enforce`.
 
 ## Inspect: simulation, audit, escalations, policy
 
 ```bash
 python examples/inspect/demo.py      # live local stack; opens the browser
-harness inspect --task task.yaml --audit audit.jsonl --harness-url http://127.0.0.1:8080 --approver-token-file alice.token
+capgate inspect --task task.yaml --audit audit.jsonl --harness-url http://127.0.0.1:8080 --approver-token-file alice.token
 ```
 
 A thin local UI: edit a contract and watch the allow/deny/escalate table change;
@@ -135,7 +135,7 @@ browse and verify the hash-chained audit trail; approve or reject pending
 escalations; ask what a hypothetical action would hit and diff two contracts.
 See [docs/inspect.md](docs/inspect.md).
 
-![harness inspect — simulation, audit, policy and escalations](docs/assets/inspect-overview.png)
+![capgate inspect — simulation, audit, policy and escalations](docs/assets/inspect-overview.png)
 
 <details>
 <summary>Each view, full size</summary>
@@ -189,7 +189,7 @@ quietly widen or drop a rule. See [docs/contracts.md](docs/contracts.md) and
 ## The API
 
 ```python
-from harness import Harness, load_contract
+from capgate import Harness, load_contract
 
 harness = Harness(load_contract("contract.yaml"), tools={"web.search": search})
 
@@ -252,19 +252,19 @@ boundary. Full detail: [docs/threat-model.md](docs/threat-model.md).
 ```
 Python SDK (in-process Harness) ─┐
 HTTP API (uvicorn, behind nginx) ┤
-harness_client / curl  ──────────┼──► Interceptor ─► Policy ─► Executor ─► Tool / Agent
+capgate_client / curl  ──────────┼──► Interceptor ─► Policy ─► Executor ─► Tool / Agent
 MCP client → /mcp  ──────────────┘
 ```
 
 ```bash
-harness token keygen --keyring keys.json                                   # rotate later by running it again
-harness serve examples/basic/server.yaml                                   # keyring hot-reloads; state persists
-harness token issue --keyring keys.json --sub researcher --role agent --ttl 15m
-harness token revoke --keyring keys.json --state state.db --token "$TOKEN"
+capgate token keygen --keyring keys.json                                   # rotate later by running it again
+capgate serve examples/basic/server.yaml                                   # keyring hot-reloads; state persists
+capgate token issue --keyring keys.json --sub researcher --role agent --ttl 15m
+capgate token revoke --keyring keys.json --state state.db --token "$TOKEN"
 ```
 
 ```python
-from harness_client import HarnessClient
+from capgate_client import HarnessClient
 client = HarnessClient("http://127.0.0.1:8700", token=supervisor.current_token)  # str or callable
 client.act("web.search", {"query": "..."})
 ```
@@ -289,7 +289,7 @@ python examples/mcp/demo.py    # drives /mcp with the official MCP SDK client
 ```
 
 ```
-Tools offered to this agent:  web-search  web-fetch  agent-delegate  harness-approval_status
+Tools offered to this agent:  web-search  web-fetch  agent-delegate  capgate-approval_status
   web-search      OK     CAPABILITY_GRANTED
   database-read   ERROR  EXPLICITLY_DENIED
   agent-delegate  ERROR  (requires human approval → approval_id)
@@ -298,14 +298,14 @@ Tools offered to this agent:  web-search  web-fetch  agent-delegate  harness-app
 Identity comes from the bearer token, never the MCP payload. Denied and unknown
 tools are audited tool-errors; escalations return an approval id. Upstream MCP
 servers can back executor tools with their credentials held harness-side, and
-`harness mcp-bridge` adapts stdio-only clients. See [docs/mcp.md](docs/mcp.md).
+`capgate mcp-bridge` adapts stdio-only clients. See [docs/mcp.md](docs/mcp.md).
 
 ## Audit trail
 
 ```bash
-harness enforce examples/basic/task.yaml --audit audit.jsonl
-harness audit audit.jsonl --decision deny
-harness audit audit.jsonl --verify
+capgate enforce examples/basic/task.yaml --audit audit.jsonl
+capgate audit audit.jsonl --decision deny
+capgate audit audit.jsonl --verify
 ```
 
 Each record states what was proposed, by which agent, under which contract
@@ -344,7 +344,7 @@ src/harness/      contract, capability, policy, decision, request, interceptor,
                   state, ratelimit, api (transport-independent core), asgi + server
                   (uvicorn/stdlib transports), inspect/ (local UI), mcp/ (gateway,
                   upstream, stdio bridge)
-sdk/python/       harness_client — thin HTTP client
+sdk/python/       capgate_client — thin HTTP client
 examples/         basic, simulation, delegation-boundary, adversarial-agent, inspect, mcp
 deploy/           reference isolated deployment: compose, harness/, agent/, network/, proxy/ (nginx), demo
 policies/         reusable contract templates

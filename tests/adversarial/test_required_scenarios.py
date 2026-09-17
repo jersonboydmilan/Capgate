@@ -5,7 +5,7 @@ Detailed variants live in the per-category directories alongside this file.
 
 import pytest
 
-from harness import ReasonCode
+from capgate import ReasonCode
 from helpers import SpyTool, delegation_contracts, make_harness
 
 

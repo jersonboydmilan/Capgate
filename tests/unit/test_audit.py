@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from harness import AuditIntegrityError, AuditLog, load_audit
+from capgate import AuditIntegrityError, AuditLog, load_audit
 
 
 def test_hash_chain_verifies_and_persists(tmp_path):

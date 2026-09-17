@@ -84,7 +84,7 @@
       <path d="M16 3 L28 8 V17 C28 25 22.5 30 16 32 C9.5 30 4 25 4 17 V8 Z"/>
       <path d="M11 17.5 L14.5 21 L21.5 14"/>
     </g>
-    <text x="22" y="0" text-anchor="middle" font-size="32" font-weight="700" letter-spacing="7" fill="#FFFFFF">AGENT HARNESS</text>
+    <text x="22" y="0" text-anchor="middle" font-size="32" font-weight="700" letter-spacing="7" fill="#FFFFFF">CAPGATE</text>
   </g>
   <text x="800" y="432" text-anchor="middle" font-size="14" font-weight="500" letter-spacing="1.5" fill="#8E97C7">Every action is declared, checked, recorded — before it runs</text>
   <line x1="300" y1="462" x2="1300" y2="462" stroke="#ffffff" stroke-opacity="0.07"/>

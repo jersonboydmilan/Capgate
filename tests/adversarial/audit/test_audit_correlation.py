@@ -2,7 +2,7 @@
 
 import pytest
 
-from harness import AuditLog, ReasonCode
+from capgate import AuditLog, ReasonCode
 from helpers import SpyTool, delegation_contracts, make_harness
 
 REQUIRED = {"decision_id", "decision", "reason_code", "agent_id", "contract_id", "contract_hash", "action", "arguments_hash", "capability", "policy_rule", "outcome", "timestamp", "hash", "prev_hash"}

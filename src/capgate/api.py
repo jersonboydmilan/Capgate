@@ -51,7 +51,7 @@ class Response:
 class HarnessAPI:
     def __init__(self, harness: Harness, authority: TokenAuthority, *, rate_limit: RateLimitConfig | None = None) -> None:
         if harness.mode is not Mode.ENFORCE:
-            raise ValueError("the HTTP API runs in enforce mode; use `harness simulate` for dry runs")
+            raise ValueError("the HTTP API runs in enforce mode; use `capgate simulate` for dry runs")
         if authority.state is None:
             authority.state = harness.state  # revocations live with the rest of the authority state
         self.harness = harness

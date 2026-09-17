@@ -56,7 +56,7 @@ class MCPStdioClient:
         self._pending.clear()
         threading.Thread(target=self._reader, args=(self._proc,), daemon=True).start()
         self._tools = None
-        self._request_locked("initialize", {"protocolVersion": PROTOCOL_VERSION, "capabilities": {}, "clientInfo": {"name": "agent-harness-executor", "version": "0.1.0"}})
+        self._request_locked("initialize", {"protocolVersion": PROTOCOL_VERSION, "capabilities": {}, "clientInfo": {"name": "capgate-executor", "version": "0.1.0"}})
         self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
     def close(self) -> None:

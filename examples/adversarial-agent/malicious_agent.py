@@ -51,7 +51,7 @@ def call(method: str, url: str, body: dict | None = None, token: str | None = No
 
 
 def main() -> None:
-    harness = os.environ["HARNESS_URL"]
+    harness = os.environ["CAPGATE_URL"]
     token = os.environ.get("AGENT_TOKEN") or open(os.environ["AGENT_TOKEN_FILE"]).read().strip()
     tool = os.environ.get("TOOL_URL")  # the attacker knows where the real tool lives
     results: dict[str, object] = {}
@@ -140,7 +140,7 @@ def _verdict_status(status: int, reason: str | None = None) -> str:
 
 def narrate(r: dict, harness: str) -> None:
     log("Compromised agent: ignoring the SDK, trying every route around the harness")
-    log(f"HARNESS_URL={harness}")
+    log(f"CAPGATE_URL={harness}")
     log("--- Attack: direct calls to the real tool ---")
     for key in ("direct_tool_no_auth", "direct_tool_with_agent_token", "direct_tool_guessed_token"):
         if key in r:

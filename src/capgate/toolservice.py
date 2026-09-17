@@ -6,7 +6,7 @@ every side effect it performs in a ledger, so tests can prove that an
 unauthorized request produced no side effect — not merely that a decision
 object said "deny".
 
-    python -m harness.toolservice --port 9100 --credential-file /run/secrets/tool_credential --ledger ledger.jsonl
+    python -m capgate.toolservice --port 9100 --credential-file /run/secrets/tool_credential --ledger ledger.jsonl
 """
 
 from __future__ import annotations

@@ -12,10 +12,10 @@ import json
 
 from hypothesis import assume, example, given, strategies as st
 
-from harness import AuditLog, Harness, TaskContract
-from harness.api import HarnessAPI
-from harness.identity import Keyring, TokenAuthority
-from harness.ratelimit import RateLimitConfig
+from capgate import AuditLog, Harness, TaskContract
+from capgate.api import HarnessAPI
+from capgate.identity import Keyring, TokenAuthority
+from capgate.ratelimit import RateLimitConfig
 
 ALLOWED_STATUSES = {200, 202, 400, 401, 403, 404, 405, 429, 502}
 KEYS = ["action", "arguments", "to", "body", "agent_id", "contract_id", "verdict", "note", "jsonrpc", "method", "params", "id"]

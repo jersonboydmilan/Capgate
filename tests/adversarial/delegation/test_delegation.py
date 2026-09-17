@@ -2,7 +2,7 @@
 
 import pytest
 
-from harness import ReasonCode
+from capgate import ReasonCode
 from helpers import SpyTool, delegation_contracts, make_harness
 
 
@@ -73,7 +73,7 @@ def test_agent_without_delegate_capability_cannot_delegate():
 
 def test_delegation_chain_does_not_launder_authority():
     """A → B → C: C still acts only under C's contract, B only under B's."""
-    from harness import TaskContract
+    from capgate import TaskContract
 
     a = TaskContract.from_dict({"contract_id": "ca", "goal": "g", "max_steps": 50, "agents": {"a": {"capabilities": {
         "database.write": "allow",

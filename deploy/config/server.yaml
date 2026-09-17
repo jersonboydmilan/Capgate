@@ -2,7 +2,7 @@
 contracts: [contracts.yaml]
 listen: {host: 0.0.0.0, port: 8080}
 transport: uvicorn
-trusted_proxies_env: MANDATE_API_SUBNET  # api_net: only the edge proxy is there; its X-Real-IP is believed
+trusted_proxies_env: CAPGATE_API_SUBNET  # api_net: only the edge proxy is there; its X-Real-IP is believed
 audit: /data/audit.jsonl
 audit_echo: true                      # one line per audit record in `docker compose logs harness`
 state: /data/state.db

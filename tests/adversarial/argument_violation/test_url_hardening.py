@@ -5,8 +5,8 @@ import threading
 
 import pytest
 
-from harness import ReasonCode
-from harness.tools import DestinationRefused, HttpFetchTool
+from capgate import ReasonCode
+from capgate.tools import DestinationRefused, HttpFetchTool
 from helpers import make_harness
 
 
@@ -119,7 +119,7 @@ def test_https_pins_ip_but_verifies_hostname(monkeypatch):
         seen["address"] = address
         raise ConnectionRefusedError("stop here")
 
-    monkeypatch.setattr("harness.tools.socket.create_connection", fake_create_connection)
+    monkeypatch.setattr("capgate.tools.socket.create_connection", fake_create_connection)
     tool = HttpFetchTool(resolver=lambda h, p: ["93.184.216.34"])
     with pytest.raises(ConnectionRefusedError):
         tool({"url": "https://example.com/"})

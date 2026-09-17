@@ -21,11 +21,11 @@ import tempfile
 import time
 from pathlib import Path
 
-from harness import AuditLog, Harness, TaskContract
-from harness.identity import Keyring, TokenAuthority
-from harness.server import HarnessServer
-from harness.toolservice import ToolService
-from harness.tools import ControlledEndpointTool
+from capgate import AuditLog, Harness, TaskContract
+from capgate.identity import Keyring, TokenAuthority
+from capgate.server import HarnessServer
+from capgate.toolservice import ToolService
+from capgate.tools import ControlledEndpointTool
 
 HERE = Path(__file__).parent
 
@@ -54,7 +54,7 @@ def main() -> None:
     server = HarnessServer(harness, authority).start()
     try:
         env = {
-            "PATH": "/usr/bin:/bin", "HARNESS_URL": server.url, "AGENT_TOKEN": token, "TOOL_URL": tools.url,
+            "PATH": "/usr/bin:/bin", "CAPGATE_URL": server.url, "AGENT_TOKEN": token, "TOOL_URL": tools.url,
             "EXPIRED_TOKEN": authority.issue("researcher", "agent", 60, issued_at=time.time() - 3600),
             "REVOKED_TOKEN": revoked,
         }
