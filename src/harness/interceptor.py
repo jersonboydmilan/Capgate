@@ -34,7 +34,9 @@ class Interceptor:
         self._lock = threading.RLock()
 
     def usage_for(self, request: ActionRequest) -> Usage:
-        contract_id = self.bindings.get(request.agent_id) if isinstance(request.agent_id, str) else None
+        if request.problems():
+            return Usage()  # malformed requests are denied by policy; never use their fields as state keys
+        contract_id = self.bindings.get(request.agent_id)
         if contract_id is None:
             return Usage()
         return Usage(self.state.steps(contract_id), self.state.calls(request.agent_id, request.action))

@@ -122,8 +122,10 @@ class TaskContract:
             agent_id, tools = data.get("agent"), data.get("allowed_tools")
             if agent_id is None or tools is None:
                 raise ContractError("the shorthand form requires both 'agent' and 'allowed_tools'")
-            if not isinstance(tools, list):
-                raise ContractError("allowed_tools must be a list")
+            if not isinstance(agent_id, str):
+                raise ContractError("agent must be a string")
+            if not isinstance(tools, list) or not all(isinstance(t, str) for t in tools):
+                raise ContractError("allowed_tools must be a list of action names")
             agents = {agent_id: {"capabilities": {t: "allow" for t in tools}}}
 
         return cls(
@@ -132,9 +134,17 @@ class TaskContract:
             agents=agents or {},
             max_steps=data.get("max_steps"),
             expires_at=data.get("expires_at"),
-            approvers=tuple(data.get("approvers") or ()),
+            approvers=_approvers(data.get("approvers")),
             version=data.get("version", "1"),
         )
+
+
+def _approvers(value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, (list, tuple)) or not all(isinstance(a, str) for a in value):
+        raise ContractError("approvers must be a list of principal ids")
+    return tuple(value)
 
 
 def _parse_agent(contract_id: str, agent_id: str, grant: Any) -> AgentGrant:
