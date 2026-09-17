@@ -7,9 +7,9 @@ test lives in tests/bypass/.
 
 import pytest
 
-from harness import ActionRequest, ExecutionRefused
-from harness.core import AuthorizationResult
-from harness.executor import ExecutionGrant
+from capgate import ActionRequest, ExecutionRefused
+from capgate.core import AuthorizationResult
+from capgate.executor import ExecutionGrant
 from helpers import SpyTool, make_harness
 
 

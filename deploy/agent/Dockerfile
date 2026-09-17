@@ -4,7 +4,7 @@ ARG BASE_IMAGE=alpine:latest
 FROM ${BASE_IMAGE}
 COPY deploy/.cache/python.tar.gz /tmp/python.tar.gz
 RUN tar -xzf /tmp/python.tar.gz -C /opt && rm /tmp/python.tar.gz && adduser -S -D -H -u 20001 agent
-COPY sdk/python/harness_client /app/harness_client
+COPY sdk/python/capgate_client /app/capgate_client
 COPY examples/adversarial-agent/malicious_agent.py /app/malicious_agent.py
 ENV PATH=/opt/python/bin:/usr/bin:/bin PYTHONPATH=/app PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app

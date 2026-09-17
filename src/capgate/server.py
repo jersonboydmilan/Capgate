@@ -8,7 +8,7 @@ one of two transports:
   * ``stdlib`` — development and tests without extra dependencies.
 
 The default is uvicorn when it is installed; override with ``transport=`` or the
-``HARNESS_HTTP_TRANSPORT`` environment variable.
+``CAPGATE_HTTP_TRANSPORT`` environment variable.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ REQUEST_TIMEOUT_SECONDS = 10.0
 
 
 def default_transport() -> str:
-    chosen = os.environ.get("HARNESS_HTTP_TRANSPORT")
+    chosen = os.environ.get("CAPGATE_HTTP_TRANSPORT")
     if chosen:
         return chosen
     try:
@@ -128,7 +128,7 @@ class HarnessServer:
 
 def _make_handler(api: HarnessAPI):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "agent-harness"
+        server_version = "capgate"
         timeout = REQUEST_TIMEOUT_SECONDS  # per-socket-operation timeout: stalled clients cannot hold a thread
 
         def log_message(self, *args):

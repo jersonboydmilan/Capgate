@@ -4,11 +4,11 @@ from datetime import datetime, timezone
 
 from hypothesis import given, strategies as st
 
-from harness import ActionRequest, ContractError, DecisionType, TaskContract, evaluate
-from harness.capability import Effect
-from harness.contract import build_bindings
-from harness.policy import Usage
-from harness.request import MalformedRequest
+from capgate import ActionRequest, ContractError, DecisionType, TaskContract, evaluate
+from capgate.capability import Effect
+from capgate.contract import build_bindings
+from capgate.policy import Usage
+from capgate.request import MalformedRequest
 
 NOW = datetime(2026, 9, 1, tzinfo=timezone.utc)
 names = st.one_of(st.sampled_from(["web.search", "web.fetch", "agent.delegate", "agent.message", "db.write", "harness.x", "contract.y"]), st.text(max_size=20))

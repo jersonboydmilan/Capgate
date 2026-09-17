@@ -1,7 +1,7 @@
 import pytest
 
-from harness import ContractError, TaskContract, load_contracts
-from harness.capability import Effect
+from capgate import ContractError, TaskContract, load_contracts
+from capgate.capability import Effect
 from helpers import research_contract
 
 

@@ -1,4 +1,4 @@
-"""Agent Harness — authority management for autonomous software agents.
+"""Capgate — authority management for autonomous software agents.
 
 The agent proposes. The harness authorizes. The executor acts.
 """

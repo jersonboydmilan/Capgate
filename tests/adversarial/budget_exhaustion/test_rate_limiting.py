@@ -7,10 +7,10 @@ import urllib.request
 
 import pytest
 
-from harness import AuditLog, Harness
-from harness.identity import Keyring, TokenAuthority
-from harness.ratelimit import RateLimitConfig, TokenBucket
-from harness.server import HarnessServer
+from capgate import AuditLog, Harness
+from capgate.identity import Keyring, TokenAuthority
+from capgate.ratelimit import RateLimitConfig, TokenBucket
+from capgate.server import HarnessServer
 from helpers import SpyTool, delegation_contracts
 
 
@@ -80,7 +80,7 @@ def test_unauthenticated_flood_does_not_grow_the_audit_trail(stack):
 
 def test_suppressed_failures_are_counted_in_the_next_record():
     clock = Clock()
-    from harness.ratelimit import AuditSampler
+    from capgate.ratelimit import AuditSampler
 
     sampler = AuditSampler(per_minute=2, max_keys=100, clock=clock)
     assert [sampler.admit("ip") for _ in range(5)] == [(True, 0), (True, 0), (False, 0), (False, 0), (False, 0)]

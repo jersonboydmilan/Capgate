@@ -49,5 +49,5 @@ max_steps: 20
   top-level `contracts:` list.
 
 ```bash
-harness validate contract.yaml
+capgate validate contract.yaml
 ```

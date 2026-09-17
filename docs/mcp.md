@@ -24,7 +24,7 @@ protocol versions `2025-03-26` through `2025-11-25`.
   - denied or unknown → `isError` tool result with the reason code (a JSON-RPC
     *success* carrying a tool error, per MCP), audited like any proposal;
   - escalated → `isError` with an `approval_id`; nothing runs until a human
-    approves. The `harness-approval_status` tool checks it.
+    approves. The `capgate-approval_status` tool checks it.
 - `agent.message` and `agent.delegate` are offered as tools too, so a
   multi-agent MCP client delegates through the same boundary.
 
@@ -34,7 +34,7 @@ batches and server-stream GETs are refused.
 ## Bridge: stdio-only clients
 
 Many clients (Claude Desktop, Claude Code) launch MCP servers over stdio.
-`harness mcp-bridge --url … --token-file …` is a stdio↔HTTP adapter that runs
+`capgate mcp-bridge --url … --token-file …` is a stdio↔HTTP adapter that runs
 next to the agent and forwards JSON-RPC to `/mcp` with the agent's own token
 (re-read each request, so it can be rotated). It holds no authority itself.
 

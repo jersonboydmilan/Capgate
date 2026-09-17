@@ -1,6 +1,6 @@
 """ASGI transport for the harness API (production: run under uvicorn).
 
-    harness serve server.yaml               # uses this transport when uvicorn is installed
+    capgate serve server.yaml               # uses this transport when uvicorn is installed
 
 HTTP parsing is done by uvicorn/h11. This layer adds what the harness needs on
 top: a streaming body-size cap (413 before the whole body is buffered), a

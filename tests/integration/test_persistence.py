@@ -5,8 +5,8 @@ import threading
 
 import pytest
 
-from harness import AuditLog, ExecutionRefused, Harness, ReasonCode, TaskContract
-from harness.state import SQLiteStateStore
+from capgate import AuditLog, ExecutionRefused, Harness, ReasonCode, TaskContract
+from capgate.state import SQLiteStateStore
 from helpers import SpyTool, delegation_contracts, research_contract
 
 KEY = secrets.token_bytes(32)
@@ -69,7 +69,7 @@ def test_pending_escalation_survives_restart_and_is_single_use(tmp_path):
     assert again.pending_approvals() == []
     record = again.approval_record(pending.approval_id)
     assert (record["status"], record["verdict"], record["approver"]) == ("decided", "granted", "alice")
-    from harness import ApprovalError
+    from capgate import ApprovalError
     with pytest.raises(ApprovalError):
         again.approve(pending.approval_id, "alice")
 

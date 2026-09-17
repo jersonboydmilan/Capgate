@@ -1,7 +1,7 @@
 import pytest
 
-from harness import ActionRequest
-from harness.request import MalformedRequest
+from capgate import ActionRequest
+from capgate.request import MalformedRequest
 
 
 def test_arguments_are_frozen_at_construction():

@@ -2,7 +2,7 @@
 
 The compromised agent runs *inside* the agent container of deploy/docker-compose.yml;
 these tests assert on what it observed from there and on ground truth the agent
-cannot influence (the real tool's ledger, the harness audit trail).
+cannot influence (the real tool's ledger, the capgate audit trail).
 Fixtures: conftest.py. Opt in with `pytest -m docker`.
 """
 

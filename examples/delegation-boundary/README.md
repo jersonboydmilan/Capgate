@@ -11,7 +11,7 @@ Harness → evaluates Agent B's contract → DENIED
 ```bash
 cd examples/delegation-boundary
 python agent_a.py                 # the scripted demo
-harness simulate task.yaml        # the same scenario as a dry run
+capgate simulate task.yaml        # the same scenario as a dry run
 ```
 
 Three routes, one answer:

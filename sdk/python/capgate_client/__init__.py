@@ -3,7 +3,7 @@
 A convenience, not a security control: every call it makes could be made
 with curl, and the harness enforces the same rules either way.
 
-    from harness_client import HarnessClient
+    from capgate_client import HarnessClient
 
     client = HarnessClient("http://127.0.0.1:8700", token=os.environ["AGENT_TOKEN"])
     outcome = client.act("web.search", {"query": "..."})
@@ -57,7 +57,7 @@ class Outcome:
 
 class HarnessClient:
     def __init__(self, base_url: str, token: str | Callable[[], str], *, timeout: float = 30.0) -> None:
-        """`token` is a short-lived harness token, or a callable returning the current one."""
+        """`token` is a short-lived capgate token, or a callable returning the current one."""
         self.base_url = base_url.rstrip("/")
         self._token = token
         self.timeout = timeout

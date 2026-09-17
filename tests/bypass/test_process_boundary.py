@@ -19,11 +19,11 @@ from pathlib import Path
 
 import pytest
 
-from harness import AuditLog, Harness, TaskContract
-from harness.identity import Keyring, TokenAuthority
-from harness.server import HarnessServer
-from harness.toolservice import ToolService
-from harness.tools import ControlledEndpointTool
+from capgate import AuditLog, Harness, TaskContract
+from capgate.identity import Keyring, TokenAuthority
+from capgate.server import HarnessServer
+from capgate.toolservice import ToolService
+from capgate.tools import ControlledEndpointTool
 
 ROOT = Path(__file__).resolve().parents[2]
 AGENT = ROOT / "examples" / "adversarial-agent" / "malicious_agent.py"
@@ -63,7 +63,7 @@ def start_deployment(tmp_path):
     }
     server = HarnessServer(harness, authority).start()
     try:
-        yield {"tools": tools, "server": server, "harness": harness, "agent_token": agent_token, "extra_tokens": extra_tokens,
+        yield {"tools": tools, "server": server, "capgate": harness, "agent_token": agent_token, "extra_tokens": extra_tokens,
                "authority": authority, "tmp": tmp_path}
     finally:
         server.stop()
@@ -77,7 +77,7 @@ def deployment(tmp_path):
 
 
 def agent_env(d):
-    return {"PATH": "/usr/bin:/bin", "HARNESS_URL": d["server"].url, "AGENT_TOKEN": d["agent_token"], "TOOL_URL": d["tools"].url, **d["extra_tokens"]}
+    return {"PATH": "/usr/bin:/bin", "CAPGATE_URL": d["server"].url, "AGENT_TOKEN": d["agent_token"], "TOOL_URL": d["tools"].url, **d["extra_tokens"]}
 
 
 def run_agent(env):
@@ -117,7 +117,7 @@ def test_compromised_agent_process_cannot_cause_unauthorized_side_effects(deploy
     assert effects[0]["payload"] == {"query": "hello"}
 
     # And every attempt that reached the harness is in the audit trail.
-    audit = deployment["harness"].audit
+    audit = deployment["capgate"].audit
     audit.verify()
     reasons = {rec.get("reason_code") for rec in audit.records()}
     assert {"TOOL_NOT_ALLOWED", "IDENTITY_MISMATCH", "CONTRACT_MISMATCH", "UNAUTHENTICATED", "REQUIRES_APPROVAL", "CAPABILITY_GRANTED"} <= reasons
@@ -128,7 +128,7 @@ def test_compromised_agent_process_cannot_cause_unauthorized_side_effects(deploy
 def test_agent_process_cannot_reuse_escalation_after_rejection(deployment):
     import urllib.request
 
-    server, harness = deployment["server"], deployment["harness"]
+    server, harness = deployment["server"], deployment["capgate"]
     req = urllib.request.Request(
         f"{server.url}/v1/actions",
         data=json.dumps({"action": "email.send", "arguments": {"to": "x@example.com"}}).encode(),

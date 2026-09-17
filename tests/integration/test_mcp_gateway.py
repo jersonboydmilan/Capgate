@@ -14,11 +14,11 @@ from pathlib import Path
 
 import pytest
 
-from harness import AuditLog, Harness, TaskContract
-from harness.identity import Keyring, TokenAuthority
-from harness.mcp import MCPGateway, action_to_tool_name, tool_name_to_action
-from harness.mcp.upstream import MCPStdioClient, MCPTool, build_mcp_clients
-from harness.server import HarnessServer
+from capgate import AuditLog, Harness, TaskContract
+from capgate.identity import Keyring, TokenAuthority
+from capgate.mcp import MCPGateway, action_to_tool_name, tool_name_to_action
+from capgate.mcp.upstream import MCPStdioClient, MCPTool, build_mcp_clients
+from capgate.server import HarnessServer
 from helpers import SpyTool
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -41,8 +41,8 @@ def contracts():
 
 @pytest.fixture
 def gateway_pair():
-    from harness.api import HarnessAPI
-    from harness.ratelimit import RateLimitConfig
+    from capgate.api import HarnessAPI
+    from capgate.ratelimit import RateLimitConfig
 
     calls = {"write": [], "publish": []}
     tools = {
@@ -80,7 +80,7 @@ def test_initialize_and_tools_list_reflect_the_contract(gateway_pair):
     tools = {t["name"]: t for t in reply["result"]["tools"]}
     assert "notes-write" in tools and "notes-read" in tools and "notes-publish" in tools
     assert "notes-delete" not in tools  # deny is not offered
-    assert "harness-approval_status" in tools
+    assert "capgate-approval_status" in tools
     assert "human approval" in tools["notes-publish"]["description"].lower()
 
 
@@ -91,7 +91,7 @@ def test_allowed_call_executes_once(gateway_pair):
     result = reply["result"]
     assert result["isError"] is False
     assert result["structuredContent"]["saved"] == "T"
-    assert result["_meta"]["harness"]["decision"] == "allow"
+    assert result["_meta"]["capgate"]["decision"] == "allow"
     assert calls["write"] == [{"title": "T", "text": "body"}]
 
 
@@ -101,7 +101,7 @@ def test_denied_call_is_a_tool_error_not_a_protocol_error(gateway_pair):
     status, reply = rpc(api, token, "tools/call", {"name": "notes-delete", "arguments": {"title": "T"}})
     assert status == 200 and "error" not in reply           # JSON-RPC success…
     assert reply["result"]["isError"] is True               # …carrying a tool error
-    assert reply["result"]["_meta"]["harness"]["reason_code"] == "EXPLICITLY_DENIED"
+    assert reply["result"]["_meta"]["capgate"]["reason_code"] == "EXPLICITLY_DENIED"
     assert harness.audit.query(event="decision", action="notes.delete", decision="deny")
 
 
@@ -110,17 +110,17 @@ def test_unknown_tool_is_denied_by_default_and_audited(gateway_pair):
     token = authority.issue("scribe", "agent", 600)
     _, reply = rpc(api, token, "tools/call", {"name": "shell-exec", "arguments": {"cmd": "rm -rf /"}})
     assert reply["result"]["isError"] is True
-    assert reply["result"]["_meta"]["harness"]["reason_code"] == "TOOL_NOT_ALLOWED"
+    assert reply["result"]["_meta"]["capgate"]["reason_code"] == "TOOL_NOT_ALLOWED"
 
 
 def test_escalated_call_returns_approval_id_and_does_not_execute(gateway_pair):
     api, authority, harness, calls = gateway_pair
     token = authority.issue("scribe", "agent", 600)
     _, reply = rpc(api, token, "tools/call", {"name": "notes-publish", "arguments": {"title": "T"}})
-    meta = reply["result"]["_meta"]["harness"]
+    meta = reply["result"]["_meta"]["capgate"]
     assert reply["result"]["isError"] is True and meta["approval_id"]
     assert calls["publish"] == []
-    _, status_reply = rpc(api, token, "tools/call", {"name": "harness-approval_status", "arguments": {"approval_id": meta["approval_id"]}})
+    _, status_reply = rpc(api, token, "tools/call", {"name": "capgate-approval_status", "arguments": {"approval_id": meta["approval_id"]}})
     assert json.loads(status_reply["result"]["content"][0]["text"])["status"] == "pending"
 
 
@@ -175,7 +175,7 @@ def test_upstream_mcp_tool_executes_and_exposes_schema(notes_client):
 def test_end_to_end_denied_upstream_call_leaves_no_side_effect(tmp_path):
     ledger = tmp_path / "notes.jsonl"
     clients = build_mcp_clients({"notes": {"command": [sys.executable, str(NOTES_SERVER)], "env": {"NOTES_TOKEN": {"value": "s3cret"}, "NOTES_LEDGER": {"value": str(ledger)}}}})
-    from harness.tools import build_tools
+    from capgate.tools import build_tools
     tools = build_tools({"notes.write": {"type": "mcp", "server": "notes", "tool": "write_note"}, "notes.delete": {"type": "mcp", "server": "notes", "tool": "delete_note"}},
                         mcp_servers={"notes": {"command": [sys.executable, str(NOTES_SERVER)], "env": {"NOTES_TOKEN": {"value": "s3cret"}, "NOTES_LEDGER": {"value": str(ledger)}}}})
     try:
@@ -195,7 +195,7 @@ def test_end_to_end_denied_upstream_call_leaves_no_side_effect(tmp_path):
 def test_official_mcp_client_over_http(tmp_path):
     ledger = tmp_path / "notes.jsonl"
     server_cfg = {"notes": {"command": [sys.executable, str(NOTES_SERVER)], "env": {"NOTES_TOKEN": {"value": "s3cret"}, "NOTES_LEDGER": {"value": str(ledger)}}}}
-    from harness.tools import build_tools
+    from capgate.tools import build_tools
     tools = build_tools(
         {"notes.write": {"type": "mcp", "server": "notes", "tool": "write_note"}, "notes.publish": {"type": "mcp", "server": "notes", "tool": "publish_note"}},
         mcp_servers=server_cfg,
@@ -217,7 +217,7 @@ def test_official_mcp_client_over_http(tmp_path):
         async with Client(server=transport, mode="legacy", client_info=_impl()) as client:
             listed = await client.list_tools()
             names = {t.name for t in listed.tools}
-            assert {"notes-write", "notes-publish", "harness-approval_status"} <= names
+            assert {"notes-write", "notes-publish", "capgate-approval_status"} <= names
             good = await client.call_tool("notes-write", {"title": "T", "text": "hello"})
             assert good.is_error is False
             denied = await client.call_tool("notes-delete", {"title": "T"})
@@ -243,10 +243,10 @@ def _impl():
 
 
 def test_stdio_bridge_forwards_to_the_gateway(tmp_path):
-    """harness mcp-bridge: a stdio-only client reaches /mcp with the agent's own token."""
+    """capgate mcp-bridge: a stdio-only client reaches /mcp with the agent's own token."""
     import io
 
-    from harness.mcp.bridge import run_bridge
+    from capgate.mcp.bridge import run_bridge
 
     harness = Harness(contracts(), tools={"notes.write": SpyTool({"_mcp": {"content": [{"type": "text", "text": "ok"}]}})}, audit=AuditLog())
     authority = TokenAuthority(Keyring.generate())
@@ -263,7 +263,7 @@ def test_stdio_bridge_forwards_to_the_gateway(tmp_path):
     )
     stdout = io.StringIO()
     try:
-        from harness.mcp.bridge import token_from_file
+        from capgate.mcp.bridge import token_from_file
 
         run_bridge(f"{server.url}/mcp", token_from_file(str(token_path)), stdin=stdin, stdout=stdout)
     finally:
@@ -271,6 +271,6 @@ def test_stdio_bridge_forwards_to_the_gateway(tmp_path):
     replies = [json.loads(line) for line in stdout.getvalue().splitlines()]
     assert replies[0]["result"]["protocolVersion"] == "2025-11-25"       # initialize
     assert replies[1]["result"]["isError"] is False                       # write allowed
-    assert replies[2]["result"]["_meta"]["harness"]["reason_code"] == "EXPLICITLY_DENIED"  # delete denied
+    assert replies[2]["result"]["_meta"]["capgate"]["reason_code"] == "EXPLICITLY_DENIED"  # delete denied
     # the notification produced no reply line
     assert len(replies) == 3

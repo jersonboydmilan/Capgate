@@ -21,7 +21,7 @@ release yet; the sections below track the milestones on `main`.
   calls are audited tool errors; escalations return an approval id.
 - Upstream MCP servers can back executor tools (`type: mcp`), with credentials
   held on the harness side.
-- `harness mcp-bridge` adapts stdio-only MCP clients to `/mcp`.
+- `capgate mcp-bridge` adapts stdio-only MCP clients to `/mcp`.
 
 ### Isolation and state (earlier milestones)
 - Reference isolated deployment (`deploy/`): a compromised agent reaches only the

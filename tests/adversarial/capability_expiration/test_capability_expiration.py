@@ -1,6 +1,6 @@
 import pytest
 
-from harness import ExecutionRefused, ReasonCode, TaskContract
+from capgate import ExecutionRefused, ReasonCode, TaskContract
 from helpers import FakeClock, SpyTool, T0, make_harness
 
 

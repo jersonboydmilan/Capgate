@@ -1,6 +1,6 @@
 """Agent B: a helpful — or fully compromised — agent that does whatever it is asked."""
 
-from harness import Harness
+from capgate import Harness
 
 
 class AgentB:

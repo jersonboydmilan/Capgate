@@ -1,6 +1,6 @@
-# harness token keygen --keyring examples/basic/keys.json
-# harness serve examples/basic/server.yaml
-# harness token issue --keyring examples/basic/keys.json --sub researcher --role agent --ttl 15m
+# capgate token keygen --keyring examples/basic/keys.json
+# capgate serve examples/basic/server.yaml
+# capgate token issue --keyring examples/basic/keys.json --sub researcher --role agent --ttl 15m
 contracts: [contract.yaml]
 listen: {host: 127.0.0.1, port: 8700}
 audit: audit.jsonl

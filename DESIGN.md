@@ -1,6 +1,6 @@
 # Design
 
-Agent Harness manages **authority** for autonomous software. Its job is to
+Capgate manages **authority** for autonomous software. Its job is to
 answer, for every proposed action, one question — *may this agent, under
 this contract, do this, with these arguments, now?* — and to make sure the
 answer is binding.
@@ -62,7 +62,7 @@ described in `docs/threat-model.md` and tested in `tests/bypass/`.
 
 The audit record is written before a decision is returned. If the write fails,
 the exception propagates and no grant exists, so nothing executes. Records are
-structured (never model reasoning) and hash-chained; `harness audit --verify`
+structured (never model reasoning) and hash-chained; `capgate audit --verify`
 detects edits, deletions and reordering.
 
 *Enforced in:* `interceptor.Interceptor.record`, `audit.AuditLog`.

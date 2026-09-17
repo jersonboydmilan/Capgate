@@ -1,4 +1,4 @@
-from harness import ReasonCode, TaskContract
+from capgate import ReasonCode, TaskContract
 from helpers import delegation_contracts, make_harness
 
 
@@ -39,7 +39,7 @@ def test_flooding_messages_exhausts_sender_budget():
     contracts = delegation_contracts()
     a = contracts[0].to_dict()
     a["max_steps"] = 5
-    from harness import TaskContract as TC
+    from capgate import TaskContract as TC
     harness = make_harness([TC.from_dict(a), contracts[1]])
     results = [harness.send_message("agent-a", "agent-b", f"spam {i}") for i in range(8)]
     assert sum(r.allowed for r in results) == 5

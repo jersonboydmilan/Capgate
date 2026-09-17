@@ -50,9 +50,9 @@ delegate(A, B, action, args)  → ActionRequest(A, "agent.delegate", {...})     
 | Entry | Identity from | Use |
 |---|---|---|
 | `Harness` (in-process) | the caller | trusted orchestrators, tests, simulation |
-| `harness serve` / `HarnessServer` | bearer token | untrusted agents; the enforcement boundary |
-| `harness_client.HarnessClient` | bearer token | convenience wrapper over the HTTP API |
-| `harness simulate` / `enforce` | task file | contract development and CI |
+| `capgate serve` / `HarnessServer` | bearer token | untrusted agents; the enforcement boundary |
+| `capgate_client.HarnessClient` | bearer token | convenience wrapper over the HTTP API |
+| `capgate simulate` / `enforce` | task file | contract development and CI |
 
 ## Modules
 

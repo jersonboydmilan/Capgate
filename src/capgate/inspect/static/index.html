@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>harness inspect</title>
+<title>capgate inspect</title>
 <style>
   :root {
     color-scheme: light dark;
@@ -88,7 +88,7 @@
 </head>
 <body>
 <header>
-  <h1>harness inspect <span>· local</span></h1>
+  <h1>capgate inspect <span>· local</span></h1>
   <nav role="tablist">
     <button role="tab" data-tab="simulate" aria-selected="true">Simulate</button>
     <button role="tab" data-tab="audit" aria-selected="false">Audit</button>
@@ -557,7 +557,7 @@ $("d-run").addEventListener("click", async () => {
     if (!escConfigured) {
       $("esc-list").replaceChildren(el("div", { class: "panel" },
         el("p", {}, "Approvals are not configured. Start inspect with a running harness and an approver token:"),
-        el("pre", { class: "json" }, "harness inspect --harness-url http://127.0.0.1:8080 \\\n  --approver-token-file ./alice.token"),
+        el("pre", { class: "json" }, "capgate inspect --harness-url http://127.0.0.1:8080 \\\n  --approver-token-file ./alice.token"),
       ));
     } else {
       escTimer = setInterval(refreshEscalations, 5000);

@@ -60,7 +60,7 @@ class Stack:
         return proc
 
     def harness_cli(self, *args: str) -> str:
-        return self.compose("exec", "-T", "harness", "python3", "-m", "harness.cli", *args).stdout.strip()
+        return self.compose("exec", "-T", "harness", "python3", "-m", "capgate.cli", *args).stdout.strip()
 
     def read(self, service: str, path: str) -> str:
         return self.compose("exec", "-T", service, "cat", path).stdout.strip()
@@ -74,9 +74,9 @@ class Stack:
 def create_stack() -> Stack:
     import random
 
-    project = f"mandate-test-{uuid.uuid4().hex[:8]}"
+    project = f"capgate-test-{uuid.uuid4().hex[:8]}"
     subnet = f"172.31.{random.randint(1, 249)}.0/24"  # api_net; distinct per stack so parallel stacks don't collide
-    return Stack(project, {"MANDATE_PREFIX": project, "HARNESS_HOST_PORT": str(_free_port()), "MANDATE_API_SUBNET": subnet})
+    return Stack(project, {"CAPGATE_PREFIX": project, "CAPGATE_HOST_PORT": str(_free_port()), "CAPGATE_API_SUBNET": subnet})
 
 
 def ensure_artifacts() -> None:
@@ -136,7 +136,7 @@ def run_attack(stack: Stack) -> dict[str, Any]:
         "agent_log": agent_log,
         "side_effects": jsonl(stack.compose("exec", "-T", "tools", "sh", "-c", "cat /data/ledger.jsonl 2>/dev/null || true").stdout),
         "decoy_side_effects": jsonl(stack.compose("exec", "-T", "misattached-tool", "sh", "-c", "cat /data/ledger.jsonl 2>/dev/null || true").stdout),
-        "audit_verified": stack.compose("exec", "-T", "harness", "python3", "-m", "harness.cli", "audit", "/data/audit.jsonl", "--verify", check=False).returncode == 0,
+        "audit_verified": stack.compose("exec", "-T", "harness", "python3", "-m", "capgate.cli", "audit", "/data/audit.jsonl", "--verify", check=False).returncode == 0,
         "audit": json.loads(stack.harness_cli("audit", "/data/audit.jsonl", "--json") or "[]"),
         "netguard": stack.compose("logs", "--no-log-prefix", "netguard").stdout,
         "harness_logs": stack.compose("logs", "--no-log-prefix", "harness").stdout,
@@ -252,7 +252,7 @@ def main() -> int:
     if args.json:
         print(json.dumps({"checks": [{"check": c, "observed": o, "pass": p} for c, o, p in rows], "result": result}, indent=2, default=str))
     else:
-        print("\nAGENT HARNESS — COMPROMISED AGENT IN ISOLATED DEPLOYMENT\n")
+        print("\nCAPGATE — COMPROMISED AGENT IN ISOLATED DEPLOYMENT\n")
         width = max(len(c) for c, _, _ in rows) + 2
         for check, observed, ok in rows:
             print(f"  {'PASS' if ok else 'FAIL'}  {check:<{width}}{observed}")

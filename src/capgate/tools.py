@@ -144,7 +144,7 @@ class HttpFetchTool:
         if parts.query:
             path += "?" + parts.query
         try:
-            conn.request("GET", path, headers={"User-Agent": "agent-harness/0.1", "Accept-Encoding": "identity"})
+            conn.request("GET", path, headers={"User-Agent": "capgate/0.1", "Accept-Encoding": "identity"})
             resp = conn.getresponse()
             if 300 <= resp.status < 400:
                 return {"status": resp.status, "url": url, "resolved_ip": pinned, "redirect_to": resp.getheader("Location"), "followed": False, "body": ""}

@@ -1,6 +1,6 @@
-"""`harness mcp-bridge`: expose the harness MCP endpoint to stdio-only MCP clients.
+"""`capgate mcp-bridge`: expose the harness MCP endpoint to stdio-only MCP clients.
 
-    harness mcp-bridge --url http://proxy:8080/mcp --token-file /run/agent/token
+    capgate mcp-bridge --url http://proxy:8080/mcp --token-file /run/agent/token
 
 Runs on the agent's side of the boundary. It is a pure transport adapter: it
 forwards each JSON-RPC line from stdin to POST /mcp with the agent's own token

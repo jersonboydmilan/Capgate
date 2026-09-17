@@ -4,7 +4,7 @@
             client's tool calls become ActionRequests under the caller's contract.
   upstream  executor tools backed by real MCP servers (stdio); they run on the
             harness side, where the credentials live.
-  bridge    `harness mcp-bridge`: stdio <-> /mcp for clients that only speak stdio;
+  bridge    `capgate mcp-bridge`: stdio <-> /mcp for clients that only speak stdio;
             runs next to the agent and holds nothing but the agent's own token.
 """
 

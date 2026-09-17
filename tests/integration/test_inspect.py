@@ -1,4 +1,4 @@
-"""harness inspect: API behaviour, local-only protections, and the approvals round trip."""
+"""capgate inspect: API behaviour, local-only protections, and the approvals round trip."""
 
 import json
 import secrets
@@ -9,11 +9,11 @@ from urllib.parse import quote
 
 import pytest
 
-from harness import AuditLog, Harness
-from harness.identity import Keyring, TokenAuthority
-from harness.inspect import InspectServer
-from harness.server import HarnessServer
-from harness_client import HarnessClient
+from capgate import AuditLog, Harness
+from capgate.identity import Keyring, TokenAuthority
+from capgate.inspect import InspectServer
+from capgate.server import HarnessServer
+from capgate_client import HarnessClient
 from helpers import SpyTool, research_contract
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -166,6 +166,6 @@ def test_approvals_unconfigured_is_explained(inspect):
 
 def test_policy_view_has_no_shadowed_current_identifier():
     """Regression: refreshPolicy referenced the stale-guard current() while a local const current shadowed it."""
-    html = (Path(__file__).resolve().parents[2] / "src/harness/inspect/static/index.html").read_text()
+    html = (Path(__file__).resolve().parents[2] / "src/capgate/inspect/static/index.html").read_text()
     body = html[html.index("async function refreshPolicy"):html.index("$(\"x-run\")")]
     assert "const current =" not in body and "const selectedAgent =" in body

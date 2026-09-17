@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 SUPPORTED_VERSIONS = ("2025-03-26", "2025-06-18", "2025-11-25")
 LATEST_VERSION = SUPPORTED_VERSIONS[-1]
-APPROVAL_STATUS_TOOL = "harness-approval_status"
+APPROVAL_STATUS_TOOL = "capgate-approval_status"
 _TOOL_NAME = re.compile(r"^[a-z][a-z0-9_]*(-[a-z][a-z0-9_]*)*$")
 
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS = -32700, -32600, -32601, -32602
@@ -47,7 +47,7 @@ def tool_name_to_action(name: str) -> str | None:
 
 
 class MCPGateway:
-    def __init__(self, api: "HarnessAPI", *, server_name: str = "agent-harness", server_version: str = "0.1.0") -> None:
+    def __init__(self, api: "HarnessAPI", *, server_name: str = "capgate", server_version: str = "0.1.0") -> None:
         self.api = api
         self.harness = api.harness
         self.server_info = {"name": server_name, "version": server_version}
@@ -208,11 +208,11 @@ def _decision_result(status: int, payload: dict) -> dict:
         execution = final.get("execution") or {}
         output = execution.get("output")
         if execution.get("status") == "failed":
-            return {"content": [{"type": "text", "text": f"Tool failed after authorization: {execution.get('error')}"}], "isError": True, "_meta": {"harness": harness_meta}}
+            return {"content": [{"type": "text", "text": f"Tool failed after authorization: {execution.get('error')}"}], "isError": True, "_meta": {"capgate": harness_meta}}
         if isinstance(output, dict) and "_mcp" in output:  # upstream MCP result: pass through
             result = dict(output["_mcp"])
             result.setdefault("isError", False)  # MCP defaults absent isError to false; make it explicit
-            result["_meta"] = {**(result.get("_meta") or {}), "harness": harness_meta}
+            result["_meta"] = {**(result.get("_meta") or {}), "capgate": harness_meta}
             return result
         if execution == {} and final.get("decision") == "allow":  # message delivery
             return _text_result({"delivered": True, "decision_id": final.get("decision_id")}, meta=harness_meta)
@@ -222,12 +222,12 @@ def _decision_result(status: int, payload: dict) -> dict:
         return {
             "content": [{"type": "text", "text": f"Not executed: this call requires human approval. approval_id={approval_id}. Check it with {APPROVAL_STATUS_TOOL}; do not retry the call."}],
             "isError": True,
-            "_meta": {"harness": harness_meta},
+            "_meta": {"capgate": harness_meta},
         }
     reason = harness_meta["reason_code"] or payload.get("error") or "DENIED"
     detail = final.get("detail") or (payload.get("execution") or {}).get("reason") or ""
     where = f" (blocked at {harness_meta['blocked_at']})" if harness_meta.get("blocked_at") else ""
-    return {"content": [{"type": "text", "text": f"Denied by the agent harness: {reason}{where}. {detail}".strip()}], "isError": True, "_meta": {"harness": harness_meta}}
+    return {"content": [{"type": "text", "text": f"Denied by the agent harness: {reason}{where}. {detail}".strip()}], "isError": True, "_meta": {"capgate": harness_meta}}
 
 
 def _text_result(value: Any, *, is_error: bool = False, meta: dict | None = None) -> dict:
@@ -236,7 +236,7 @@ def _text_result(value: Any, *, is_error: bool = False, meta: dict | None = None
     if isinstance(value, dict) and not is_error:
         result["structuredContent"] = value
     if meta:
-        result["_meta"] = {"harness": meta}
+        result["_meta"] = {"capgate": meta}
     return result
 
 

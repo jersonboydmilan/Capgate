@@ -1,4 +1,4 @@
-"""`harness inspect`: a local, single-user inspection UI.
+"""`capgate inspect`: a local, single-user inspection UI.
 
 Serves one static page and a small JSON API on 127.0.0.1. Simulation, policy
 and audit views run locally on the same engine as the CLI. The escalation
@@ -42,7 +42,7 @@ class InspectServer:
         port: int = 0,
     ) -> None:
         if host not in ("127.0.0.1", "localhost", "::1"):
-            raise ValueError("harness inspect binds to loopback only")
+            raise ValueError("capgate inspect binds to loopback only")
         self.tasks = [Path(t).resolve() for t in (tasks or [])]
         self.audit_path = str(Path(audit_path).resolve()) if audit_path else ""
         self.harness_url = harness_url.rstrip("/") if harness_url else None
@@ -126,10 +126,10 @@ class InspectServer:
 
 
 def _make_handler(app: InspectServer):
-    page = resources.files("harness.inspect").joinpath("static/index.html").read_text(encoding="utf-8")
+    page = resources.files("capgate.inspect").joinpath("static/index.html").read_text(encoding="utf-8")
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "harness-inspect"
+        server_version = "capgate-inspect"
         timeout = 30
 
         def log_message(self, *args):

@@ -11,10 +11,10 @@ import time
 import pytest
 from hypothesis import given, settings, strategies as st
 
-from harness import AuditLog, Harness, TaskContract
-from harness.identity import Keyring, TokenAuthority
-from harness.ratelimit import RateLimitConfig
-from harness.server import HarnessServer
+from capgate import AuditLog, Harness, TaskContract
+from capgate.identity import Keyring, TokenAuthority
+from capgate.ratelimit import RateLimitConfig
+from capgate.server import HarnessServer
 
 DEEP = os.environ.get("HYPOTHESIS_PROFILE") == "deep"
 VALID = b'POST /v1/actions HTTP/1.1\r\nHost: h\r\nContent-Type: application/json\r\nAuthorization: Bearer TOKEN\r\nContent-Length: 44\r\n\r\n{"action":"web.search","arguments":{"q":1}}'

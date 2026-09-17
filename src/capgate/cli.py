@@ -1,15 +1,15 @@
-"""harness — command-line interface.
+"""capgate — command-line interface.
 
-    harness validate contract.yaml
-    harness simulate task.yaml
-    harness enforce task.yaml [--audit audit.jsonl] [--approver alice]
-    harness audit audit.jsonl [--agent ID] [--decision deny] [--verify]
-    harness serve server.yaml
-    harness token keygen  --keyring keys.json            # create, or rotate to a new active key
-    harness token retire  --keyring keys.json --kid KID
-    harness token issue   --keyring keys.json --sub researcher --role agent --ttl 15m
-    harness token revoke  --keyring keys.json --state state.db --token TOKEN
-    harness inspect [--task task.yaml ...] [--audit audit.jsonl] [--harness-url URL --approver-token-file F]
+    capgate validate contract.yaml
+    capgate simulate task.yaml
+    capgate enforce task.yaml [--audit audit.jsonl] [--approver alice]
+    capgate audit audit.jsonl [--agent ID] [--decision deny] [--verify]
+    capgate serve server.yaml
+    capgate token keygen  --keyring keys.json            # create, or rotate to a new active key
+    capgate token retire  --keyring keys.json --kid KID
+    capgate token issue   --keyring keys.json --sub researcher --role agent --ttl 15m
+    capgate token revoke  --keyring keys.json --state state.db --token TOKEN
+    capgate inspect [--task task.yaml ...] [--audit audit.jsonl] [--harness-url URL --approver-token-file F]
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from .simulation import TaskError, load_task, render, run_task
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="harness", description="Authority management for autonomous software agents.")
+    parser = argparse.ArgumentParser(prog="capgate", description="Authority management for autonomous software agents.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("validate", help="validate one or more contract files")
@@ -193,7 +193,7 @@ def _serve(args) -> int:
     )
     identity = cfg.get("identity") or {}
     if not identity.get("keyring_file"):
-        raise ValueError("serve config needs identity.keyring_file (see `harness token keygen`)")
+        raise ValueError("serve config needs identity.keyring_file (see `capgate token keygen`)")
     keyring_path = Path(identity["keyring_file"])
     authority = TokenAuthority(
         keyring_path if keyring_path.is_absolute() else path.parent / keyring_path,
@@ -216,7 +216,7 @@ def _serve(args) -> int:
         from .mcp import MCPGateway
 
         MCPGateway(server.api)
-    print(f"agent harness listening on {server.url} ({len(contracts)} contracts, transport={server.transport}{', mcp=/mcp' if enable_mcp else ''})", flush=True)
+    print(f"capgate listening on {server.url} ({len(contracts)} contracts, transport={server.transport}{', mcp=/mcp' if enable_mcp else ''})", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -266,7 +266,7 @@ def _inspect(args) -> int:
     if bool(args.harness_url) != bool(token):
         raise ValueError("--harness-url and an approver token must be given together")
     server = InspectServer(tasks=args.task, audit_path=args.audit, harness_url=args.harness_url, approver_token=token, port=args.port)
-    print(f"harness inspect on {server.url}  (local only; Ctrl-C to stop)", flush=True)
+    print(f"capgate inspect on {server.url}  (local only; Ctrl-C to stop)", flush=True)
     if not args.no_open:
         webbrowser.open(server.url)
     try:

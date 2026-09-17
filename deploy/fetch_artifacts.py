@@ -38,7 +38,7 @@ APK_SETS = {"apk": ("iptables", "ip6tables"), "apk-proxy": ("nginx",)}
 
 
 def fetch(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "agent-harness-fetch"})
+    req = urllib.request.Request(url, headers={"User-Agent": "capgate-fetch"})
     with urllib.request.urlopen(req, timeout=120) as resp:
         return resp.read()
 

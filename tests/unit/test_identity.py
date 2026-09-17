@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from harness.identity import Keyring, TokenAuthority, TokenError, _b64d, _b64e
-from harness.state import MemoryStateStore
+from capgate.identity import Keyring, TokenAuthority, TokenError, _b64d, _b64e
+from capgate.state import MemoryStateStore
 
 
 class Clock:

@@ -2,9 +2,9 @@
 
 import pytest
 
-from harness import ActionRequest, DecisionType, ReasonCode, TaskContract, evaluate
-from harness.contract import build_bindings
-from harness.policy import Usage
+from capgate import ActionRequest, DecisionType, ReasonCode, TaskContract, evaluate
+from capgate.contract import build_bindings
+from capgate.policy import Usage
 from helpers import T0, research_contract
 
 

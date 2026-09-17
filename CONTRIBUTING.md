@@ -1,6 +1,6 @@
 # Contributing
 
-Agent Harness is early and in the open. The most useful contributions right now
+Capgate is early and in the open. The most useful contributions right now
 are **attempts to break the boundary** and **reviews of the threat model**.
 
 ## Ways to help
@@ -36,7 +36,7 @@ pytest -m docker             # containerised isolation boundary (needs Docker)
 HYPOTHESIS_PROFILE=deep pytest tests/fuzz   # thousands of examples per property
 ```
 
-The full suite runs on both HTTP transports (`HARNESS_HTTP_TRANSPORT=stdlib` and
+The full suite runs on both HTTP transports (`CAPGATE_HTTP_TRANSPORT=stdlib` and
 `uvicorn`); CI runs both plus the Docker isolation job. Please run `pytest`
 before opening a pull request.
 

@@ -6,10 +6,10 @@ import urllib.request
 
 import pytest
 
-from harness import AuditLog, Harness
-from harness.identity import Keyring, TokenAuthority
-from harness.server import HarnessServer
-from harness_client import HarnessClient
+from capgate import AuditLog, Harness
+from capgate.identity import Keyring, TokenAuthority
+from capgate.server import HarnessServer
+from capgate_client import HarnessClient
 from helpers import SpyTool, delegation_contracts, research_contract
 
 
@@ -141,8 +141,8 @@ def test_malformed_or_stalled_bodies_do_not_hold_the_server(monkeypatch, transpo
     import socket
     import time
 
-    import harness.asgi as asgi_module
-    import harness.server as server_module
+    import capgate.asgi as asgi_module
+    import capgate.server as server_module
 
     monkeypatch.setattr(server_module, "REQUEST_TIMEOUT_SECONDS", 1.0)
     monkeypatch.setattr(asgi_module, "BODY_CHUNK_TIMEOUT_SECONDS", 1.0)

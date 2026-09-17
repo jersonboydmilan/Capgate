@@ -2,7 +2,7 @@
 
 import pytest
 
-from harness import ExecutionRefused, ReasonCode
+from capgate import ExecutionRefused, ReasonCode
 from helpers import SpyTool, make_harness
 
 

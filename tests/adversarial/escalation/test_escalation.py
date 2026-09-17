@@ -2,7 +2,7 @@
 
 import pytest
 
-from harness import ApprovalError, DelegationResult, ReasonCode, TaskContract
+from capgate import ApprovalError, DelegationResult, ReasonCode, TaskContract
 from helpers import SpyTool, make_harness
 
 

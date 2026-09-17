@@ -5,7 +5,7 @@
 
 from pathlib import Path
 
-from harness import ExecutionRefused, Harness, load_contract
+from capgate import ExecutionRefused, Harness, load_contract
 
 
 def web_search(arguments):
