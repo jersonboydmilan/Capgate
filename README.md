@@ -1,8 +1,16 @@
-# Agent Harness
+<h1 align="center">Agent Harness</h1>
 
-**Authority management for autonomous software agents.**
+<p align="center"><b>Authority management for autonomous software agents.</b></p>
 
-> The agent proposes. The harness authorizes. The executor acts.
+<p align="center"><i>The agent proposes. The harness authorizes. The executor acts.</i></p>
+
+<p align="center">
+  <a href="https://github.com/jersonboydmilan/Agent-Harness/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/jersonboydmilan/Agent-Harness/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="Python" src="https://img.shields.io/badge/python-3.10%E2%80%933.13-blue">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-262%20%2B%2015%20docker-brightgreen">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-informational">
+  <img alt="Status" src="https://img.shields.io/badge/status-research%20preview-orange">
+</p>
 
 Agent Harness is a runtime enforcement boundary that sits underneath your
 existing agent stack. Every consequential action an agent takes — a tool call,
@@ -16,6 +24,15 @@ ask the model to follow rules; it makes unauthorized actions structurally
 unable to reach a tool.
 
 ![Agent Harness architecture](docs/assets/agent-harness-diagram.png)
+
+## Contents
+
+- [The boundary, under attack](#the-boundary-under-attack) — a compromised agent, contained
+- [Inspect](#inspect-simulation-audit-escalations-policy) — the local UI (screenshots)
+- [The contract](#the-contract) · [The API](#the-api) · [Delegation](#delegation-does-not-transfer-authority)
+- [What is actually enforced](#what-is-actually-enforced) · [MCP](#mcp-agents-call-in-through-the-boundary)
+- [Audit trail](#audit-trail) · [Tests](#tests) · [Status](#status)
+- Design: [DESIGN.md](DESIGN.md) (the five invariants) · [docs/threat-model.md](docs/threat-model.md) · [SECURITY.md](SECURITY.md)
 
 ## The boundary, under attack
 
@@ -117,6 +134,29 @@ A thin local UI: edit a contract and watch the allow/deny/escalate table change;
 browse and verify the hash-chained audit trail; approve or reject pending
 escalations; ask what a hypothetical action would hit and diff two contracts.
 See [docs/inspect.md](docs/inspect.md).
+
+![harness inspect — simulation, audit, policy and escalations](docs/assets/inspect-overview.png)
+
+<details>
+<summary>Each view, full size</summary>
+
+**Simulate** — the contract and the proposed actions side by side; every edit re-runs the decision table.
+
+![Simulate](docs/assets/inspect-simulate.png)
+
+**Audit** — the hash-chained trail, integrity checked on load, filterable and correlatable by decision.
+
+![Audit](docs/assets/inspect-audit.png)
+
+**Escalations** — pending human approvals, with the proposed action, arguments, contract and reason.
+
+![Escalations](docs/assets/inspect-escalations.png)
+
+**Policy** — the grants in effect per agent, a "what would this hit?" evaluator, and a contract diff.
+
+![Policy](docs/assets/inspect-policy.png)
+
+</details>
 
 ## The contract
 

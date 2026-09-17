@@ -162,3 +162,10 @@ def test_approvals_round_trip_through_real_harness(tmp_path):
 def test_approvals_unconfigured_is_explained(inspect):
     status, body, _ = request(inspect, "/api/approvals")
     assert status == 422 and "not configured" in body["error"]
+
+
+def test_policy_view_has_no_shadowed_current_identifier():
+    """Regression: refreshPolicy referenced the stale-guard current() while a local const current shadowed it."""
+    html = (Path(__file__).resolve().parents[2] / "src/harness/inspect/static/index.html").read_text()
+    body = html[html.index("async function refreshPolicy"):html.index("$(\"x-run\")")]
+    assert "const current =" not in body and "const selectedAgent =" in body
