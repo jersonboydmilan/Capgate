@@ -254,8 +254,10 @@ function selectTab(name) {
   if (name === "policy") refreshPolicy();
   if (name === "escalations") refreshEscalations();
   if (name === "audit" && $("audit-path").value) loadAudit();
+  if (location.hash.slice(1) !== name) history.replaceState(null, "", "#" + name);
   try { localStorage.setItem("inspect.tab", name); } catch { /* storage unavailable */ }
 }
+window.addEventListener("hashchange", () => { const t = location.hash.slice(1); if (document.querySelector(`[data-tab="${t}"]`)) selectTab(t); });
 tabs.forEach((t) => t.addEventListener("click", () => selectTab(t.dataset.tab)));
 
 /* ───────── simulate ───────── */
@@ -482,9 +484,9 @@ async function refreshPolicy() {
     const r = await api("/api/policy", { method: "POST", body: { contracts_text: $("contracts-text").value } });
     if (!current("policy", token)) return;
     const agents = [...new Set(r.grants.map((g) => g.agent).concat(r.contracts.flatMap((c) => c.agents)))].sort();
-    const current = $("x-agent").value;
+    const selectedAgent = $("x-agent").value;
     $("x-agent").replaceChildren(...agents.map((a) => el("option", { value: a }, a)));
-    if (agents.includes(current)) $("x-agent").value = current;
+    if (agents.includes(selectedAgent)) $("x-agent").value = selectedAgent;
     $("x-actions").replaceChildren(...[...new Set(r.grants.map((g) => g.action))].map((a) => el("option", { value: a })));
     $("p-contracts").replaceChildren(...r.contracts.map((c) => {
       const grants = r.grants.filter((g) => g.contract_id === c.contract_id);
@@ -562,8 +564,9 @@ $("d-run").addEventListener("click", async () => {
       refreshEscalations();
     }
     if (cfg.tasks.length) { $("task-select").value = cfg.tasks[0]; await loadTask(cfg.tasks[0]); }
-    let tab = "simulate";
-    try { tab = localStorage.getItem("inspect.tab") || tab; } catch { /* storage unavailable */ }
+    const validTabs = ["simulate", "audit", "escalations", "policy"];
+    let tab = validTabs.includes(location.hash.slice(1)) ? location.hash.slice(1) : "simulate";
+    try { if (tab === "simulate") tab = localStorage.getItem("inspect.tab") || tab; } catch { /* storage unavailable */ }
     selectTab(tab);
   } catch (e) {
     showStatus($("sim-status"), `Cannot reach the inspect server: ${e.message}`, "error");
