@@ -26,6 +26,7 @@ import os
 import re
 import socket
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -166,6 +167,10 @@ def narrate(r: dict, harness: str) -> None:
                 log(f"  {key:<34} → {outcome} (the one permitted destination)")
             else:
                 log(f"  {key:<34} → {'UNEXPECTED SUCCESS ' + str(outcome) if reached else 'blocked as expected: ' + str(outcome)}")
+        log("--- Attack: the HTTP edge ---")
+        for key, outcome in iso.get("proxy", {}).items():
+            if key != "own_address":
+                log(f"  {key:<34} → {outcome}")
         log("--- Attack: privileges and secret material ---")
         proc, sec = iso["process"], iso["secrets"]
         log(f"  {'effective_capabilities':<34} → {proc['effective_capabilities']}")
@@ -331,6 +336,7 @@ def isolation_probes(harness_url: str) -> dict:
     cap_eff = int(re.search(r"CapEff:\s*([0-9a-f]+)", status).group(1), 16)
 
     return {
+        "proxy": proxy_probes(harness_url, harness_host, harness_port),
         "network": {
             "harness_api": tcp(harness_host, harness_port),
             "harness_other_port": tcp(harness_host, 9100),
@@ -366,6 +372,58 @@ def isolation_probes(harness_url: str) -> dict:
             "scan": scan_for_secrets(digests),
         },
     }
+
+
+def proxy_probes(harness_url: str, host: str, port: int) -> dict:
+    """Probe the HTTP edge itself: what reaches the harness, and what the proxy refuses."""
+    out: dict[str, object] = {"harness_direct": tcp("harness", 8080)}
+
+    # Slowloris: send part of the request headers and never finish.
+    started = time.time()
+    try:
+        s = socket.create_connection((host, port), timeout=20)
+        s.sendall(b"GET /v1/health HTTP/1.1\r\nHost: proxy\r\nX-Slow: ")
+        s.settimeout(20)
+        data = s.recv(1024)
+        out["slow_headers"] = f"closed_after_{round(time.time() - started)}s" + ("_with_response" if data else "")
+        s.close()
+    except socket.timeout:
+        out["slow_headers"] = "still_open_after_20s"
+    except ConnectionResetError:
+        out["slow_headers"] = f"closed_after_{round(time.time() - started)}s_reset"
+    except OSError as exc:
+        out["slow_headers"] = f"error:{exc.errno}"
+
+    out["oversized_body"] = call("POST", f"{harness_url}/v1/actions", {"action": "web.search", "arguments": {"q": "x" * 1_500_000}}, "t")[0]
+    out["unknown_path"] = call("GET", f"{harness_url}/v1/admin")[0]
+    out["path_traversal"] = call("GET", f"{harness_url}/v1/approvals/..%2f..%2fadmin")[0]
+    req = urllib.request.Request(f"{harness_url}/v1/actions", method="TRACE")
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            out["trace_method"] = resp.status
+    except urllib.error.HTTPError as exc:
+        out["trace_method"] = exc.code
+    except OSError:
+        out["trace_method"] = 0
+
+    # Spoof the client address the harness uses for rate limiting and audit.
+    req = urllib.request.Request(f"{harness_url}/v1/actions", data=b"{}", method="POST",
+                                 headers={"Authorization": "Bearer spoofed-client-probe", "X-Real-IP": "203.0.113.66", "X-Forwarded-For": "203.0.113.66", "Content-Type": "application/json"})
+    try:
+        urllib.request.urlopen(req, timeout=5)
+        out["spoofed_client_ip"] = "accepted"
+    except urllib.error.HTTPError as exc:
+        out["spoofed_client_ip"] = exc.code
+    out["own_address"] = _own_address(host, port)
+    return out
+
+
+def _own_address(host: str, port: int) -> str:
+    try:
+        with socket.create_connection((host, port), timeout=3) as s:
+            return s.getsockname()[0]
+    except OSError:
+        return ""
 
 
 def try_write(path: str) -> str:

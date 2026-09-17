@@ -92,7 +92,8 @@ compromised agent.
 
 | Property | Mechanism | Covered |
 |---|---|---|
-| Agent sockets reach only `harness:8080` | `internal` networks (no gateway) + netguard iptables allowlist (OUTPUT policy DROP) in the agent's namespace; agent has no `NET_ADMIN` | Yes — every other destination probed (tool by name/IP, misattached tool on the agent network, other harness ports, IPv4/IPv6 internet, external DNS, UDP, host gateway, Docker bridge, raw sockets) |
+| HTTP parsing and slow-client attacks | nginx edge (timeouts, sizes, path/method allowlist) in front of uvicorn/h11; both transports fuzzed with Hypothesis | Yes — `EDGE` checks, `tests/fuzz` (smuggling, oversized, random and mutated bytes) |
+| Agent sockets reach only `proxy:8080` | `internal` networks (no gateway) + netguard iptables allowlist (OUTPUT policy DROP) in the agent's namespace; agent has no `NET_ADMIN` | Yes — every other destination probed (tool by name/IP, misattached tool on the agent network, other harness ports, IPv4/IPv6 internet, external DNS, UDP, host gateway, Docker bridge, raw sockets) |
 | Each network layer holds on its own | Topology blocks unrouted targets; iptables blocks a reachable misattached tool | Yes — mutation with iptables disabled makes the misattached-tool check fail |
 | Agent cannot read harness secrets | Secrets in volumes not mounted into the agent; separate PID namespace; no Docker socket | Yes — path probes plus a full readable-filesystem, environment and `/proc` scan with a positive control |
 | Agent credential is short-lived and unforgeable | Signed tokens, 15-minute issuance, verifier TTL cap, revocation | Yes — 9 credential attacks |

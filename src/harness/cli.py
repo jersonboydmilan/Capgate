@@ -203,7 +203,7 @@ def _serve(args) -> int:
         harness, authority, host=host, port=port,
         rate_limit=RateLimitConfig.from_mapping(cfg.get("rate_limit")),
         transport=args.transport or cfg.get("transport"),
-        trusted_proxies=cfg.get("trusted_proxies"),
+        trusted_proxies=_trusted_proxies(cfg),
     )
     print(f"agent harness listening on {server.url} ({len(contracts)} contracts, transport={server.transport})", flush=True)
     try:
@@ -211,6 +211,16 @@ def _serve(args) -> int:
     except KeyboardInterrupt:
         pass
     return 0
+
+
+def _trusted_proxies(cfg: dict) -> list[str] | None:
+    import os
+
+    proxies = list(cfg.get("trusted_proxies") or [])
+    env = cfg.get("trusted_proxies_env")
+    if env and os.environ.get(env):
+        proxies.extend(p.strip() for p in os.environ[env].split(",") if p.strip())
+    return proxies or None
 
 
 def _duration(text: str) -> int:

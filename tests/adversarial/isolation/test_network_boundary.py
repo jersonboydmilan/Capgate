@@ -78,8 +78,16 @@ def test_forged_identity_and_privilege_escalation_rejected(agent_observations):
 
 
 def test_egress_allowlist_installed_and_effective(checks):
-    assert checks["NET   egress allowlist installed (default DROP, only harness:8080)"][1]
+    assert checks["NET   egress allowlist installed (default DROP, only proxy:8080)"][1]
     assert_checks(checks, "NET")
+
+
+def test_http_edge_normalises_and_bounds_requests(agent_observations, checks):
+    """nginx in front of uvicorn: the harness only ever sees complete, documented, size-bounded requests."""
+    px = agent_observations["isolation"]["proxy"]
+    assert px["harness_direct"] == "dns_failed"
+    assert px["oversized_body"] == 413 and px["unknown_path"] == 404 and px["trace_method"] in (403, 405)
+    assert_checks(checks, "EDGE")
 
 
 def test_secret_material_is_unreachable(checks):

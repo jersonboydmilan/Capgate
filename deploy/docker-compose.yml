@@ -7,15 +7,18 @@
 #   docker compose run --rm agent              # compromised agent, fresh 15-minute token
 #   docker compose logs harness                # one audit line per decision/execution
 #
-#   agent ──(agent_net, internal)──► harness ──(tool_net, internal)──► tools
-#                                       └──(edge)──► host loopback :8080, harness's own egress
+#   agent ─(agent_net)─► proxy ─(api_net)─► harness ─(tool_net)─► tools        all internal
+#                                              └─(edge)─► host loopback :8080, harness's own egress
 #
-# What the agent can reach: tcp harness:8080. Nothing else — enforced twice:
-#   1. agent_net and tool_net are `internal` (no gateway, no host, no internet);
-#      the agent is attached to agent_net only, so the tool service is not routable.
+# What the agent can reach: tcp proxy:8080. Nothing else — enforced twice:
+#   1. agent_net, api_net and tool_net are `internal` (no gateway, no host, no
+#      internet); the agent is attached to agent_net only, so neither the harness
+#      nor the tool service is routable from it.
 #   2. netguard owns the agent's network namespace and installs an iptables
-#      allowlist (policy DROP, ACCEPT tcp harness:8080). The agent joins that
+#      allowlist (policy DROP, ACCEPT tcp proxy:8080). The agent joins that
 #      namespace with every capability dropped and cannot change the rules.
+# The proxy (nginx) enforces HTTP sizes and timeouts and forwards only the
+# documented API to the harness (uvicorn).
 # What the agent holds: one short-lived signed token. Harness secrets live in
 # volumes the agent never mounts; the tool credential in a volume only the
 # harness and tool service mount. Nothing is passed through environment variables.
@@ -38,7 +41,11 @@ x-harness-image: &harness-image
 
 networks:
   agent_net:
-    internal: true        # agent <-> harness only: no gateway, no host, no internet
+    internal: true        # agent <-> proxy only: no gateway, no host, no internet
+  api_net:
+    internal: true        # proxy <-> harness only; fixed subnet = harness trusted_proxies
+    ipam:
+      config: [{subnet: "${MANDATE_API_SUBNET:-172.31.250.0/24}"}]
   tool_net:
     internal: true        # harness <-> tool service only
   edge: {}                # harness only: host inspection port and the harness's own outbound calls
@@ -79,7 +86,9 @@ services:
     depends_on:
       bootstrap: {condition: service_completed_successfully}
       tools: {condition: service_healthy}
-    networks: [agent_net, tool_net, edge]
+    environment:
+      MANDATE_API_SUBNET: "${MANDATE_API_SUBNET:-172.31.250.0/24}"
+    networks: [api_net, tool_net, edge]
     ports: ["127.0.0.1:${HARNESS_HOST_PORT:-8080}:8080"]   # host loopback only, for human inspection
     volumes:
       - "harness-data:/data"
@@ -88,6 +97,23 @@ services:
       - "./config:/config:ro"
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/v1/health', timeout=2)"]
+      interval: 2s
+      retries: 30
+
+  proxy:
+    <<: *hardening
+    build:
+      context: ..
+      dockerfile: deploy/proxy/Dockerfile
+      args: {BASE_IMAGE: "${BASE_IMAGE:-alpine:latest}"}
+    image: mandate-proxy:local
+    container_name: ${MANDATE_PREFIX:-mandate}-proxy
+    depends_on:
+      harness: {condition: service_healthy}
+    networks: [agent_net, api_net]
+    tmpfs: ["/tmp:size=64m,noexec,nosuid"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/v1/health"]
       interval: 2s
       retries: 30
 
@@ -126,9 +152,9 @@ services:
     image: mandate-netguard:local
     container_name: ${MANDATE_PREFIX:-mandate}-netguard
     depends_on:
-      harness: {condition: service_healthy}
+      proxy: {condition: service_healthy}
       misattached-tool: {condition: service_healthy}
-    environment: {HARNESS_HOST: harness, HARNESS_PORT: "8080"}
+    environment: {HARNESS_HOST: proxy, HARNESS_PORT: "8080"}
     networks: [agent_net]
     cap_drop: [ALL]
     cap_add: [NET_ADMIN, NET_RAW]
@@ -153,7 +179,7 @@ services:
       agent-token: {condition: service_completed_successfully}
     network_mode: "service:netguard"
     environment:
-      HARNESS_URL: "http://harness:8080"
+      HARNESS_URL: "http://proxy:8080"
       AGENT_TOKEN_FILE: /run/agent/token
       TOOL_URL: "http://tools:9100"   # assume the attacker knows where the real tool lives
       PROBE_ISOLATION: "1"             # also probe network egress, privileges and secret paths
