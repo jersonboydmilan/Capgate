@@ -141,8 +141,11 @@ compromised agent.
 ## Open work, in priority order
 
 1. ~~Reference deployment with egress control and process isolation~~ — done: `deploy/`.
-   Next: gVisor/microVM runtime option; Kubernetes NetworkPolicy equivalent.
-2. ~~Persistent state for budgets, approvals and used grants~~ — done (SQLite, single host). Next: multi-host store.
-3. ~~Short-lived, rotatable credentials~~ — done (signed tokens). Next: bind tokens to workload identity (mTLS / SPIFFE).
-4. Remote append-only audit sink.
-5. MCP gateway entry point on the same interception path.
+2. ~~Persistent state for budgets, approvals and used grants~~ — done (SQLite, single host).
+3. ~~Short-lived, rotatable credentials~~ — done (signed tokens).
+4. ~~Production HTTP server / proxy and API fuzzing~~ — done (uvicorn behind nginx; Hypothesis fuzz of the API, tokens, policy, contract loader and both transports).
+5. ~~A real integration proving the positioning~~ — done (MCP gateway + upstream MCP tools, exercised with the official SDK).
+6. CI on every push and a nightly deep-fuzz run — done (`.github/workflows`); outside security review is invited but has not happened yet (`SECURITY.md`).
+7. Workload identity (mTLS / SPIFFE) binding a token to the calling workload.
+8. Multi-host state and shared rate limits.
+9. Stronger isolation runtime (gVisor / Kata / Firecracker) and a tested Kubernetes deployment.

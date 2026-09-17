@@ -193,7 +193,7 @@ the harness**, in the following precise sense.
 |---|---|---|
 | Out-of-contract proposals are denied | Pure deny-by-default policy engine | `tests/adversarial/*`, `tests/unit/test_policy.py` |
 | A denied or escalated action never reaches a tool | Executor runs only with a harness-signed, single-use grant bound to the exact agent, action and argument hash | `tests/adversarial/unauthorized_tool` (Test C) |
-| An agent process cannot reach the real tool directly | **Isolated runtime:** agent's only network route is `harness:8700` (internal networks + iptables allowlist). **Any deployment:** tool credentials exist only in the executor and the tool endpoint requires them | `tests/adversarial/isolation` (`pytest -m docker`), `tests/bypass/test_process_boundary.py` |
+| An agent process cannot reach the real tool directly | **Isolated runtime:** agent's only network route is `harness:8080` (internal networks + iptables allowlist). **Any deployment:** tool credentials exist only in the executor and the tool endpoint requires them | `tests/adversarial/isolation` (`pytest -m docker`), `tests/bypass/test_process_boundary.py` |
 | An agent cannot read harness secrets | Isolated runtime: secrets mounted only into harness/tools, separate PID namespace, no capabilities, read-only filesystem | `tests/adversarial/isolation` |
 | An agent cannot impersonate another agent or pick its contract | Identity comes from a verified short-lived signed token (expiry, TTL cap, rotation, revocation), contract from the server-side binding | `tests/bypass`, `tests/unit/test_identity.py`, `tests/adversarial/scope_expansion` |
 | Restarts don't reset authority | Budgets, used grants, approvals, messages and revocations persist in SQLite | `tests/integration/test_persistence.py` |
@@ -207,12 +207,13 @@ credential custody still stops direct tool calls, but not that. Kernel and
 container-runtime escapes are out of scope. The SDK is a convenience, never the
 boundary. Full detail: [docs/threat-model.md](docs/threat-model.md).
 
-## Three ways in, one path through
+## Ways in, one path through
 
 ```
 Python SDK (in-process Harness) ─┐
-HTTP API (harness serve)  ───────┼──► Interceptor ─► Policy ─► Executor ─► Tool / Agent
-harness_client / curl  ──────────┘
+HTTP API (uvicorn, behind nginx) ┤
+harness_client / curl  ──────────┼──► Interceptor ─► Policy ─► Executor ─► Tool / Agent
+MCP client → /mcp  ──────────────┘
 ```
 
 ```bash
@@ -233,8 +234,31 @@ a verifier-enforced maximum lifetime, key rotation without restart, and
 revocation. Tokens are issued by the operator or agent supervisor; an agent
 cannot renew its own.
 
-An MCP gateway is a natural fourth entry point onto the same path; it is not
-included yet.
+In production the API runs under **uvicorn** behind an **nginx** edge that
+bounds request sizes, timeouts and paths (see [`deploy/`](deploy/README.md)); a
+stdlib transport is kept for development. Both go through one core, fuzzed with
+Hypothesis.
+
+## MCP: agents call in through the boundary
+
+Any MCP client reaches the harness at `POST /mcp`; each `tools/call` is authorized
+under the caller's contract before it runs.
+
+```bash
+python examples/mcp/demo.py    # drives /mcp with the official MCP SDK client
+```
+
+```
+Tools offered to this agent:  web-search  web-fetch  agent-delegate  harness-approval_status
+  web-search      OK     CAPABILITY_GRANTED
+  database-read   ERROR  EXPLICITLY_DENIED
+  agent-delegate  ERROR  (requires human approval → approval_id)
+```
+
+Identity comes from the bearer token, never the MCP payload. Denied and unknown
+tools are audited tool-errors; escalations return an approval id. Upstream MCP
+servers can back executor tools with their credentials held harness-side, and
+`harness mcp-bridge` adapts stdio-only clients. See [docs/mcp.md](docs/mcp.md).
 
 ## Audit trail
 
@@ -251,9 +275,15 @@ and reason code, and the outcome. Nothing from model reasoning is captured.
 ## Tests
 
 ```bash
-pip install -e ".[dev]" && pytest     # unit, integration, adversarial, process bypass (~5s)
-pytest -m docker                      # isolated runtime acceptance tests (Docker, ~1 min)
+pip install -e ".[dev]" && pytest     # unit, integration, adversarial, fuzz, MCP (~1 min)
+pytest -m docker                      # isolated runtime acceptance tests (Docker)
+HYPOTHESIS_PROFILE=deep pytest tests/fuzz   # thousands of examples per property
 ```
+
+The suite runs on both HTTP transports; [CI](.github/workflows/ci.yml) runs
+Python 3.10–3.13 on both, plus the Docker isolation job and a nightly deep-fuzz
+run. Trying to break the boundary is the most useful contribution —
+see [SECURITY.md](SECURITY.md).
 
 The adversarial suite is organised by attack category —
 `unauthorized_tool`, `argument_violation`, `scope_expansion`, `delegation`,
@@ -261,28 +291,41 @@ The adversarial suite is organised by attack category —
 `bypass_attempt`, `budget_exhaustion`, `escalation`, `audit` — plus
 `tests/adversarial/test_required_scenarios.py`, which covers the six
 acceptance scenarios one test each; `tests/bypass/`, which attacks a live
-deployment from a separate OS process; and `tests/adversarial/isolation/`, which
-attacks the containerised reference deployment from inside the agent's sandbox.
+deployment from a separate OS process; `tests/adversarial/isolation/`, which
+attacks the containerised reference deployment from inside the agent's sandbox;
+and `tests/fuzz/`, property-based fuzzing of the API, policy engine and both
+HTTP transports.
 
 ## Layout
 
 ```
 src/harness/      contract, capability, policy, decision, request, interceptor,
-                  executor, audit, core (Harness), simulation, server, cli, tools,
-                  identity, state, inspect/ (local UI)
+                  executor, audit, core (Harness), simulation, cli, tools, identity,
+                  state, ratelimit, api (transport-independent core), asgi + server
+                  (uvicorn/stdlib transports), inspect/ (local UI), mcp/ (gateway,
+                  upstream, stdio bridge)
 sdk/python/       harness_client — thin HTTP client
-examples/         basic, simulation, delegation-boundary, adversarial-agent
-deploy/          reference isolated deployment: docker-compose.yml, harness/, agent/, network/, attack demo
+examples/         basic, simulation, delegation-boundary, adversarial-agent, inspect, mcp
+deploy/           reference isolated deployment: compose, harness/, agent/, network/, proxy/ (nginx), demo
 policies/         reusable contract templates
-docs/             architecture, contracts, capabilities, delegation, simulation, inspect, threat model
-DESIGN.md         the five invariants
+docs/             architecture, contracts, capabilities, delegation, simulation, mcp, inspect, threat model
+.github/          CI: 3.10–3.13 × both transports, docker isolation, nightly deep fuzz
+DESIGN.md         the five invariants  ·  SECURITY.md  ·  CONTRIBUTING.md
 ```
 
 ## Status
 
 The five pieces — contract, proposal, deterministic decision, enforced
 execution, audit — work end to end and are tested together
-(`tests/integration/test_end_to_end.py`). In the reference isolated runtime the
-boundary holds against every tested bypass route, enforced by the network and
-process boundary as well as by credential custody (`pytest -m docker`). Open
-items are tracked in [docs/threat-model.md](docs/threat-model.md).
+(`tests/integration/test_end_to_end.py`). In the reference isolated deployment
+the boundary holds against every tested bypass route, enforced by the network
+and process boundary, credential custody, and an nginx edge in front of uvicorn;
+a real MCP client and a real upstream MCP server run through it in the test
+suite. The API and both transports are fuzzed.
+
+Still not production-grade, on purpose. Open items, in priority order:
+workload identity (mTLS / SPIFFE) so a token is bound to the calling workload;
+multi-host state and shared rate limits; a stronger isolation runtime
+(gVisor / microVM) and a tested Kubernetes deployment; and outside security
+review — see [SECURITY.md](SECURITY.md). Full detail and what is *not* claimed:
+[docs/threat-model.md](docs/threat-model.md).

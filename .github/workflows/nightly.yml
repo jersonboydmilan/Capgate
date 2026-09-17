@@ -1,0 +1,19 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  deep-fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install 3.12
+      - run: uv pip install --system -e ".[dev]"
+      - name: Deep property-based fuzzing (thousands of examples per property)
+        run: pytest -q tests/fuzz
+        env:
+          HYPOTHESIS_PROFILE: deep
