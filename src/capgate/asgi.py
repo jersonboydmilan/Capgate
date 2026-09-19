@@ -20,25 +20,55 @@ import json
 from typing import Any
 
 from .api import MAX_BODY, HarnessAPI, Response
+from .workload import WorkloadIdentity, parse_spiffe_id
 
 BODY_CHUNK_TIMEOUT_SECONDS = 10.0
 MAX_HEADER_BYTES = 16_000
 
 
 def create_app(api: HarnessAPI, *, trusted_proxies: list[str] | None = None) -> Any:
-    """Build the ASGI app. `trusted_proxies`: CIDRs whose X-Real-IP header is believed for rate limiting."""
+    """Build the ASGI app.
+
+    `trusted_proxies`: CIDRs of front proxies whose forwarded headers are
+    believed — X-Real-IP for the client address, and, for mTLS terminated at
+    the proxy, X-Client-Spiffe-Id / X-Client-Cert-Thumbprint for the verified
+    workload identity. Headers from any other source are ignored, so a client
+    cannot forge its own workload identity.
+    """
     networks = [ipaddress.ip_network(n, strict=False) for n in (trusted_proxies or [])]
 
-    def client_address(scope: dict, headers: dict[str, str]) -> str:
+    def from_trusted_proxy(scope: dict) -> bool:
+        if not networks:
+            return False
+        peer = (scope.get("client") or ("", 0))[0]
+        try:
+            return any(ipaddress.ip_address(peer) in net for net in networks)
+        except ValueError:
+            return False
+
+    def client_address(scope: dict, headers: dict[str, str], trusted: bool) -> str:
         peer = (scope.get("client") or ("unknown", 0))[0]
         real = headers.get("x-real-ip")
-        if real and networks:
+        if real and trusted:
             try:
-                if any(ipaddress.ip_address(peer) in net for net in networks):
-                    return str(ipaddress.ip_address(real.strip()))
+                return str(ipaddress.ip_address(real.strip()))
             except ValueError:
                 pass
         return peer
+
+    def forwarded_workload(headers: dict[str, str], trusted: bool) -> WorkloadIdentity | None:
+        if not trusted:
+            return None  # never believe workload headers from a non-proxy peer
+        spiffe = headers.get("x-client-spiffe-id") or None
+        thumbprint = headers.get("x-client-cert-thumbprint") or None
+        if spiffe is None and thumbprint is None:
+            return None
+        if spiffe is not None:
+            try:
+                parse_spiffe_id(spiffe)
+            except Exception:
+                return WorkloadIdentity(verified=True)  # malformed → present but matches nothing
+        return WorkloadIdentity(spiffe_id=spiffe, thumbprint=thumbprint, verified=True)
 
     async def send_response(send: Any, response: Response, *, head: bool = False) -> None:
         body = response.encode()
@@ -99,7 +129,11 @@ def create_app(api: HarnessAPI, *, trusted_proxies: list[str] | None = None) -> 
         target = scope.get("raw_path", scope.get("path", "/").encode()).decode("latin-1")
         if scope.get("query_string"):
             target += "?" + scope["query_string"].decode("latin-1")
-        response = await asyncio.to_thread(api.dispatch, method, target, headers, bytes(body) if method == "POST" else None, client_address(scope, headers))
+        trusted = from_trusted_proxy(scope)
+        response = await asyncio.to_thread(
+            api.dispatch, method, target, headers, bytes(body) if method == "POST" else None,
+            client_address(scope, headers, trusted), forwarded_workload(headers, trusted),
+        )
         await send_response(send, response, head=method == "HEAD")
 
     return app

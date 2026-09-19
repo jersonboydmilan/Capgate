@@ -29,6 +29,8 @@ import time
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
+
+from .workload import WorkloadBinding, WorkloadIdentity, binding_from_claims, check_binding
 from typing import Any, Callable
 
 PREFIX = "ah1"
@@ -59,6 +61,11 @@ class Claims:
     exp: int
     jti: str
     kid: str
+    binding: WorkloadBinding | None = None  # set when the token is bound to a workload
+
+    @property
+    def bound(self) -> bool:
+        return self.binding is not None
 
 
 class Keyring:
@@ -148,7 +155,8 @@ class TokenAuthority:
 
     # -- issue / verify -------------------------------------------------------------
 
-    def issue(self, sub: str, role: str, ttl_seconds: int, *, issued_at: float | None = None) -> str:
+    def issue(self, sub: str, role: str, ttl_seconds: int, *, issued_at: float | None = None,
+              workload: WorkloadBinding | None = None) -> str:
         if role not in ROLES:
             raise ValueError(f"role must be one of {ROLES}")
         if not 0 < ttl_seconds <= self.max_ttl:
@@ -156,12 +164,14 @@ class TokenAuthority:
         keyring = self._current_keyring()
         iat = int(self.clock() if issued_at is None else issued_at)
         payload = {"sub": sub, "role": role, "iat": iat, "exp": iat + int(ttl_seconds), "jti": secrets.token_hex(12)}
+        if workload is not None:
+            payload.update(workload.claims())  # cnf / wl are covered by the signature
         body = _b64e(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode())
         signing_input = f"{PREFIX}.{keyring.active}.{body}"
         signature = _b64e(hmac.new(keyring.keys[keyring.active], signing_input.encode(), sha256).digest())
         return f"{signing_input}.{signature}"
 
-    def verify(self, token: str) -> Claims:
+    def verify(self, token: str, *, workload: WorkloadIdentity | None = None) -> Claims:
         parts = token.split(".") if isinstance(token, str) else []
         if len(parts) != 4 or parts[0] != PREFIX:
             raise TokenError("TOKEN_MALFORMED")
@@ -178,7 +188,8 @@ class TokenAuthority:
             raise TokenError("TOKEN_BAD_SIGNATURE")
         try:
             payload = json.loads(_b64d(body))
-            claims = Claims(str(payload["sub"]), str(payload["role"]), int(payload["iat"]), int(payload["exp"]), str(payload["jti"]), kid)
+            binding = binding_from_claims(payload)
+            claims = Claims(str(payload["sub"]), str(payload["role"]), int(payload["iat"]), int(payload["exp"]), str(payload["jti"]), kid, binding)
         except (ValueError, KeyError, TypeError):
             raise TokenError("TOKEN_MALFORMED") from None
         now = self.clock()
@@ -192,6 +203,10 @@ class TokenAuthority:
             raise TokenError("TOKEN_TTL_TOO_LONG")
         if self.state is not None and self.state.is_revoked(claims.jti):
             raise TokenError("TOKEN_REVOKED")
+        if claims.binding is not None:
+            reason = check_binding(claims.binding, workload)
+            if reason is not None:
+                raise TokenError(reason)  # token is bound; the presented workload must match
         return claims
 
     def revoke(self, token: str) -> Claims:

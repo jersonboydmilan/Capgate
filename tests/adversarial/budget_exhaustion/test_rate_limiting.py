@@ -93,7 +93,7 @@ def test_client_limit_applies_before_token_verification():
     authority = TokenAuthority(Keyring.generate())
     verified = []
     original = authority.verify
-    authority.verify = lambda token: verified.append(token) or original(token)
+    authority.verify = lambda token, **kw: verified.append(token) or original(token, **kw)
     server = HarnessServer(harness, authority, rate_limit=RateLimitConfig(client_rate=0.1, client_burst=4)).start()
     try:
         statuses = [post(server.url, "x", {})[0] for _ in range(10)]

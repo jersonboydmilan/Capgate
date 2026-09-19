@@ -13,7 +13,8 @@ dependencies = ["PyYAML>=6.0"]
 
 [project.optional-dependencies]
 server = ["uvicorn>=0.30"]
-dev = ["pytest>=8.0", "hypothesis>=6.100", "uvicorn>=0.30", "mcp>=1.9"]
+mtls = ["cryptography>=42"]   # only for tooling that reads certs (capgate token --bind-cert); runtime needs none
+dev = ["pytest>=8.0", "hypothesis>=6.100", "uvicorn>=0.30", "mcp>=1.9", "cryptography>=42"]
 
 [project.scripts]
 capgate = "capgate.cli:main"

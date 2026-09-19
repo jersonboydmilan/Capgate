@@ -5,6 +5,16 @@ release yet; the sections below track the milestones on `main`.
 
 ## Unreleased
 
+### Workload identity (mTLS / SPIFFE)
+- Tokens can be bound to the calling workload: an RFC 8705 `cnf.x5t#S256`
+  certificate thumbprint and/or a SPIFFE `wl` id, verified against the mTLS
+  peer (stdlib direct-mTLS transport) or a trusted proxy's forwarded
+  `X-Client-Spiffe-Id` / `X-Client-Cert-Thumbprint`. A bound token replayed
+  without the workload's client cert/key is rejected; unbound tokens are
+  unchanged. `capgate token issue --bind-cert/--bind-spiffe/--bind-thumbprint`.
+  Runtime stays dependency-free; the `mtls` extra adds `cryptography` for the
+  cert-reading tooling only. See docs/workload-identity.md.
+
 ### Boundary and transport
 - Production HTTP transport: the API runs under uvicorn/h11 behind an nginx edge
   (sizes, timeouts, path/method allowlist) in the reference deployment; a stdlib

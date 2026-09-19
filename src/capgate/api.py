@@ -31,6 +31,7 @@ from .decision import ReasonCode
 from .executor import ExecutionRefused
 from .identity import TokenAuthority, TokenError
 from .ratelimit import RateLimitConfig, RateLimiter
+from .workload import WorkloadIdentity
 
 MAX_BODY = 1_000_000
 _APPROVAL_ID = re.compile(r"^[A-Za-z0-9-]{1,64}$")
@@ -66,21 +67,23 @@ class HarnessAPI:
 
     # -- entry point -----------------------------------------------------------
 
-    def dispatch(self, method: str, target: str, headers: Mapping[str, str], body: bytes | None, client: str) -> Response:
+    def dispatch(self, method: str, target: str, headers: Mapping[str, str], body: bytes | None, client: str,
+                 workload: WorkloadIdentity | None = None) -> Response:
         path = target.split("?", 1)[0]
         try:
-            return self._dispatch(method.upper(), path, {k.lower(): v for k, v in headers.items()}, body, client)
+            return self._dispatch(method.upper(), path, {k.lower(): v for k, v in headers.items()}, body, client, workload)
         except Exception as exc:  # fail closed, never leak internals
             self.harness.audit.record("server_error", path=path[:200], error=type(exc).__name__)
             return Response(500, {"error": "internal error; nothing was executed unless an execution record exists"}, close=True)
 
-    def _dispatch(self, method: str, path: str, headers: dict[str, str], body: bytes | None, client: str) -> Response:
+    def _dispatch(self, method: str, path: str, headers: dict[str, str], body: bytes | None, client: str,
+                  workload: WorkloadIdentity | None = None) -> Response:
         if path == "/v1/health":
             return Response(200, {"ok": True}) if method in ("GET", "HEAD") else Response(405, {"error": "method not allowed"})
         if method not in ("GET", "POST"):
             return Response(405, {"error": "method not allowed"}, {"Allow": "GET, POST"})
 
-        gate = self._gate(path, method, headers.get("authorization"), client)
+        gate = self._gate(path, method, headers.get("authorization"), client, workload)
         if isinstance(gate, Response):
             return gate
         agent, approver = gate
@@ -121,12 +124,12 @@ class HarnessAPI:
 
     # -- identity and limits ----------------------------------------------------
 
-    def identify(self, header: str | None) -> tuple[str | None, str | None, str | None]:
+    def identify(self, header: str | None, workload: WorkloadIdentity | None = None) -> tuple[str | None, str | None, str | None]:
         """Return (agent_id, approver_id, failure_reason) for an Authorization header."""
         if not header or not header.startswith("Bearer "):
             return None, None, "TOKEN_MISSING"
         try:
-            claims = self.authority.verify(header[len("Bearer "):].strip())
+            claims = self.authority.verify(header[len("Bearer "):].strip(), workload=workload)
         except TokenError as exc:
             return None, None, exc.reason
         if claims.role == "agent" and self.harness.is_agent(claims.sub):
@@ -135,12 +138,13 @@ class HarnessAPI:
             return None, claims.sub, None
         return None, None, "TOKEN_UNKNOWN_PRINCIPAL"
 
-    def _gate(self, path: str, method: str, authorization: str | None, client: str) -> tuple[str | None, str | None] | Response:
-        """Client limit → authentication → principal limit."""
+    def _gate(self, path: str, method: str, authorization: str | None, client: str,
+              workload: WorkloadIdentity | None = None) -> tuple[str | None, str | None] | Response:
+        """Client limit → authentication (with workload binding) → principal limit."""
         allowed, retry = self.limiter.client(client)
         if not allowed:
             return self._limited(retry, "client", client, client, path)
-        agent, approver, failure = self.identify(authorization)
+        agent, approver, failure = self.identify(authorization, workload)
         if failure is not None:
             record, suppressed = self.limiter.audit_auth_failure(client)
             if record:

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import socket
+import ssl
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -24,8 +25,32 @@ from .api import MAX_BODY, HarnessAPI, Response
 from .core import Harness
 from .identity import TokenAuthority
 from .ratelimit import RateLimitConfig
+from .workload import WorkloadIdentity
 
 REQUEST_TIMEOUT_SECONDS = 10.0
+
+
+class TLSConfig:
+    """Server TLS, optionally requiring and verifying client certificates (mTLS).
+
+    With `client_ca`, the peer must present a certificate chaining to that CA;
+    the harness then reads the peer's SPIFFE ID (URI SAN) and RFC 8705 SHA-256
+    thumbprint and enforces any workload binding on the token. Verification is
+    done by the stdlib `ssl` module, so no third-party library is needed.
+    """
+
+    def __init__(self, certfile: str, keyfile: str, *, client_ca: str | None = None, require_client_cert: bool = True) -> None:
+        self.certfile, self.keyfile, self.client_ca = certfile, keyfile, client_ca
+        self.require_client_cert = require_client_cert and client_ca is not None
+
+    def server_context(self) -> ssl.SSLContext:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        ctx.load_cert_chain(self.certfile, self.keyfile)
+        if self.client_ca is not None:
+            ctx.load_verify_locations(self.client_ca)
+            ctx.verify_mode = ssl.CERT_REQUIRED if self.require_client_cert else ssl.CERT_OPTIONAL
+        return ctx
 
 
 def default_transport() -> str:
@@ -50,14 +75,19 @@ class HarnessServer:
         rate_limit: RateLimitConfig | None = None,
         transport: str | None = None,
         trusted_proxies: list[str] | None = None,
+        tls: "TLSConfig | None" = None,
     ) -> None:
         self.api = HarnessAPI(harness, authority, rate_limit=rate_limit)
         self.transport = transport or default_transport()
         if self.transport not in ("uvicorn", "stdlib"):
             raise ValueError(f"unknown transport {self.transport!r}")
+        self.tls = tls
         self._thread: threading.Thread | None = None
+        self._scheme = "https" if tls else "http"
         if self.transport == "stdlib":
             self.server: Any = ThreadingHTTPServer((host, port), _make_handler(self.api))
+            if tls is not None:
+                self.server.socket = tls.server_context().wrap_socket(self.server.socket, server_side=True)
             self.address = self.server.server_address[:2]
         else:
             import uvicorn
@@ -68,9 +98,16 @@ class HarnessServer:
             self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self._socket.bind((host, port))
             self.address = self._socket.getsockname()[:2]
+            ssl_kwargs = {}
+            if tls is not None:
+                ssl_kwargs = {"ssl_certfile": tls.certfile, "ssl_keyfile": tls.keyfile}
+                if tls.client_ca is not None:
+                    ssl_kwargs["ssl_ca_certs"] = tls.client_ca
+                    ssl_kwargs["ssl_cert_reqs"] = ssl.CERT_REQUIRED if tls.require_client_cert else ssl.CERT_OPTIONAL
             config = uvicorn.Config(
                 create_app(self.api, trusted_proxies=trusted_proxies),
                 lifespan="off",
+                **ssl_kwargs,
                 log_level="warning",
                 access_log=False,
                 server_header=False,
@@ -81,7 +118,7 @@ class HarnessServer:
                 proxy_headers=False,  # client address comes from X-Real-IP of trusted proxies only (harness.asgi)
             )
             self.server = uvicorn.Server(config)
-        self.url = f"http://{self.address[0]}:{self.address[1]}"
+        self.url = f"{self._scheme}://{self.address[0]}:{self.address[1]}"
 
     @property
     def harness(self) -> Harness:
@@ -160,6 +197,15 @@ def _make_handler(api: HarnessAPI):
                 return None
             return raw if len(raw) == length else None
 
+        def _peer_workload(self) -> WorkloadIdentity | None:
+            conn = self.connection
+            if not isinstance(conn, ssl.SSLSocket):
+                return None
+            der = conn.getpeercert(binary_form=True)
+            if not der:
+                return None  # client sent no cert (CERT_OPTIONAL); token bindings then fail closed
+            return WorkloadIdentity.from_peercert(conn.getpeercert(), der)
+
         def _handle(self) -> None:
             headers = {k: v for k, v in self.headers.items()}
             body = None
@@ -168,7 +214,7 @@ def _make_handler(api: HarnessAPI):
                 if body is None:
                     self._send(Response(400, {"error": "request body must be a JSON object under 1MB with a valid Content-Length"}, close=True))
                     return
-            self._send(api.dispatch(self.command, self.path, headers, body, self.client_address[0]))
+            self._send(api.dispatch(self.command, self.path, headers, body, self.client_address[0], self._peer_workload()))
 
         do_GET = do_POST = do_HEAD = do_PUT = do_DELETE = do_PATCH = do_OPTIONS = _handle
 

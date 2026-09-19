@@ -48,6 +48,7 @@ malicious contract author.
 | Open any other socket (internet, host, other containers, raw packets) | Internal networks, iptables allowlist, no capabilities | Enforced in the reference isolated runtime | `adversarial/isolation/` |
 | Read harness secrets (tool credential, signing key, tokens) | Secrets mounted only into harness/tools; separate PID namespace; read-only FS | Enforced in the reference isolated runtime | `adversarial/isolation/` (full filesystem, env and `/proc` scan) |
 | Impersonate another agent over HTTP | Identity from verified signed token; body identity ignored | Enforced | `bypass`, `adversarial/isolation/` |
+| Replay a stolen token from another host | Optional workload binding (RFC 8705 cert thumbprint + SPIFFE ID) verified against the mTLS peer or a trusted proxy's forwarded identity | Enforced when the token is bound and mTLS is deployed | `integration/test_workload_identity.py` |
 | Forge, tamper with, extend or reuse a credential | HMAC-signed claims, verifier TTL cap, expiry, revocation, key rotation | Enforced | `unit/test_identity.py`, `bypass`, `adversarial/isolation/` (`CRED` checks) |
 | Pick a more permissive contract | Server-side binding | Enforced | `adversarial/scope_expansion` |
 | Edit the contract or grant itself capabilities | Frozen contracts, reserved namespaces | Enforced | `adversarial/contract_tampering`, `scope_expansion` |
@@ -133,10 +134,13 @@ compromised agent.
   their own limits; a shared limiter is not implemented.
 - **Audit tamper-evidence is local.** The hash chain detects edits within the
   file. Ship records to append-only storage to protect against deletion.
-- **Tokens are bearer tokens.** They are short-lived (verifier-capped TTL),
-  signed, rotatable without restart and revocable, but whoever holds a valid
-  token can use it until it expires or is revoked. Not yet: mTLS or workload
-  identity (SPIFFE) binding a token to the calling workload.
+- **Tokens are bearer tokens unless bound.** They are short-lived (verifier-
+  capped TTL), signed, rotatable without restart and revocable. A token can
+  additionally be **bound to its workload** (RFC 8705 certificate thumbprint
+  and/or SPIFFE ID); a bound token replayed without the workload's client
+  cert/key is rejected. An *unbound* token remains a plain bearer token — bind
+  tokens and deploy mTLS (direct, or a trusted SPIFFE proxy) to close that gap.
+  See [workload-identity.md](workload-identity.md).
 
 ## Open work, in priority order
 
@@ -146,6 +150,6 @@ compromised agent.
 4. ~~Production HTTP server / proxy and API fuzzing~~ — done (uvicorn behind nginx; Hypothesis fuzz of the API, tokens, policy, contract loader and both transports).
 5. ~~A real integration proving the positioning~~ — done (MCP gateway + upstream MCP tools, exercised with the official SDK).
 6. CI on every push and a nightly deep-fuzz run — done (`.github/workflows`); outside security review is invited but has not happened yet (`SECURITY.md`).
-7. Workload identity (mTLS / SPIFFE) binding a token to the calling workload.
+7. ~~Workload identity (mTLS / SPIFFE) binding a token to the calling workload~~ — done (`docs/workload-identity.md`). Next: a SPIFFE-aware edge in the reference Docker deployment.
 8. Multi-host state and shared rate limits.
 9. Stronger isolation runtime (gVisor / Kata / Firecracker) and a tested Kubernetes deployment.

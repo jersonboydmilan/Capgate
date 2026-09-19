@@ -21,11 +21,16 @@ not enforced today.
   processes on one host.
 - MCP gateway (`/mcp`) and upstream MCP tools, exercised with the official SDK.
 - Property-based fuzzing of the API, policy engine and both HTTP transports.
+- **Workload identity**: tokens bindable to a workload (RFC 8705 cert
+  thumbprint + SPIFFE ID), enforced over direct mTLS or a trusted proxy's
+  forwarded identity. See [workload-identity.md](workload-identity.md).
 
 ## Next
 
-1. **Workload identity.** Bind a token to the calling workload (mTLS or SPIFFE)
-   so a leaked bearer token is not enough on its own. Highest-value hardening.
+1. **A SPIFFE-aware edge in the reference deployment.** Workload identity is
+   built and enforced; the Docker deployment still uses plain HTTP behind
+   nginx. Add an mTLS-terminating, SPIFFE-aware edge (Envoy / SPIRE) that
+   forwards the verified identity, with the isolation tests extended to it.
 2. **Multi-host state and shared rate limits.** The SQLite store is single-host;
    a shared backend (e.g. Postgres/Redis) for budgets, used permits, approvals
    and revocations, so several harness replicas make consistent decisions.

@@ -95,6 +95,9 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("--max-ttl", default="1h")
     t.add_argument("--issued-at", type=float, help=argparse.SUPPRESS)  # tests: mint already-expired tokens
     t.add_argument("--out", help="write the token to this file (mode 0444) instead of stdout")
+    t.add_argument("--bind-spiffe", help="bind the token to this SPIFFE ID (spiffe://trust-domain/path)")
+    t.add_argument("--bind-thumbprint", help="bind the token to this base64url SHA-256 cert thumbprint (RFC 8705 x5t#S256)")
+    t.add_argument("--bind-cert", help="bind to a workload's cert (PEM/DER): derive thumbprint and any SPIFFE URI SAN (needs the 'mtls' extra)")
     t = tsub.add_parser("revoke", help="revoke a token until it expires")
     t.add_argument("--keyring", required=True)
     t.add_argument("--state", required=True)
@@ -299,6 +302,28 @@ def _bootstrap(args) -> int:
     return 0
 
 
+def _binding(args):
+    from .workload import WorkloadBinding
+
+    if getattr(args, "bind_cert", None):
+        der = _cert_der(args.bind_cert)
+        return WorkloadBinding.from_cert_der(der)
+    spiffe = getattr(args, "bind_spiffe", None)
+    thumbprint = getattr(args, "bind_thumbprint", None)
+    if spiffe is None and thumbprint is None:
+        return None
+    return WorkloadBinding(spiffe_id=spiffe, thumbprint=thumbprint)
+
+
+def _cert_der(path: str) -> bytes:
+    raw = Path(path).read_bytes()
+    if b"-----BEGIN CERTIFICATE-----" in raw:
+        import base64
+        b64 = b"".join(l for l in raw.split(b"-----")[2].splitlines())
+        return base64.b64decode(b64)
+    return raw
+
+
 def _token(args) -> int:
     from .state import SQLiteStateStore
 
@@ -319,7 +344,7 @@ def _token(args) -> int:
         print(f"retired {args.kid}")
     elif args.token_command == "issue":
         authority = TokenAuthority(path, max_ttl_seconds=_duration(args.max_ttl))
-        token = authority.issue(args.sub, args.role, _duration(args.ttl), issued_at=args.issued_at)
+        token = authority.issue(args.sub, args.role, _duration(args.ttl), issued_at=args.issued_at, workload=_binding(args))
         if args.out:
             out = Path(args.out)
             tmp = out.with_name(out.name + ".tmp")
