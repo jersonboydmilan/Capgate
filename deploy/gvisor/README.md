@@ -35,21 +35,17 @@ netstack compose correctly.
 ## Install runsc
 
 gVisor is Linux/amd64 (and arm64) only — it cannot run on macOS or Windows
-Docker Desktop. On a Linux host:
+Docker Desktop. On a Linux host, install from the official GPG-signed APT
+repository (see <https://gvisor.dev/docs/user_guide/install/> for the current
+instructions and non-APT alternatives):
 
 ```bash
-# Install the runsc binary (see https://gvisor.dev/docs/user_guide/install/ for
-# the current, checksum-verified instructions).
-(
-  set -e
-  ARCH=$(uname -m)
-  URL=https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}
-  wget "${URL}/runsc" "${URL}/runsc.sha512" \
-       "${URL}/containerd-shim-runsc-v1" "${URL}/containerd-shim-runsc-v1.sha512"
-  sha512sum -c runsc.sha512 -c containerd-shim-runsc-v1.sha512
-  chmod a+rx runsc containerd-shim-runsc-v1
-  sudo mv runsc containerd-shim-runsc-v1 /usr/local/bin
-)
+# Add gVisor's signed APT repository and install runsc.
+curl -fsSL https://gvisor.dev/archive.key \
+  | sudo gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" \
+  | sudo tee /etc/apt/sources.list.d/gvisor.list > /dev/null
+sudo apt-get update && sudo apt-get install -y runsc
 
 # Register it with the Docker daemon.
 sudo runsc install
