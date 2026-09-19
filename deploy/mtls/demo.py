@@ -82,7 +82,9 @@ def run(project: str, certs_dir: Path, thumbprint: str) -> dict:
     token = compose("run", "--rm", "--no-deps", "-T", "harness", "python3", "-m", "capgate.cli",
                     "token", "issue", "--keyring", "/secrets/token_keyring", "--sub", "researcher",
                     "--role", "agent", "--ttl", "15m", "--max-ttl", "15m",
-                    "--bind-spiffe", SPIFFE_ID, "--bind-thumbprint", thumbprint).stdout.strip().splitlines()[-1]
+                    # `=` form: a base64url thumbprint can begin with '-', which argparse
+                    # would otherwise parse as a flag ("expected one argument").
+                    f"--bind-spiffe={SPIFFE_ID}", f"--bind-thumbprint={thumbprint}").stdout.strip().splitlines()[-1]
     token_file = certs_dir / "token"
     token_file.write_text(token)
     token_file.chmod(0o444)
