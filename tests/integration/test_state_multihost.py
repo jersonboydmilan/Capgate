@@ -133,3 +133,44 @@ def test_execution_permit_is_single_use_across_replicas(dsn):
         a.execute_grant(result.grant, result.request)
     assert refused.value.reason == "GRANT_ALREADY_USED"
     assert spy_a.calls == []
+
+
+def test_shared_rate_limit_across_replicas(dsn):
+    """Two RateLimiter replicas on one Postgres enforce a single per-principal budget."""
+    from capgate.ratelimit import RateLimitConfig, RateLimiter
+    from capgate.state import PostgresStateStore
+
+    cfg = RateLimitConfig(principal_rate=0.001, principal_burst=6, shared=True)  # ~no refill during the test
+    a = RateLimiter(cfg, store=PostgresStateStore(dsn))
+    b = RateLimiter(cfg, store=PostgresStateStore(dsn))
+    allowed = sum((a if i % 2 else b).principal("researcher")[0] for i in range(20))
+    assert allowed == 6                                   # shared burst across both replicas
+    assert b.principal("someone-else")[0] is True         # independent key
+
+
+def test_shared_audit_sink_streams_and_tamper_evidence(dsn):
+    from capgate.audit import AuditIntegrityError, PostgresAuditSink
+
+    a = PostgresAuditSink(dsn, stream_id="replica-a")
+    b = PostgresAuditSink(dsn, stream_id="replica-b")
+    ra = a.record("decision", decision_id="d1", decision="allow", agent_id="x")
+    a.record("execution", decision_id="d1", outcome="succeeded")
+    b.record("decision", decision_id="d2", decision="deny", agent_id="y")
+    assert ra["stream_id"] == "replica-a" and ra["sequence"] == 0
+
+    # one shared, queryable view of the whole fleet
+    fleet = PostgresAuditSink(dsn, stream_id="reader")
+    assert len(fleet) == 3
+    assert {r["decision"] for r in fleet.query(event="decision")} == {"allow", "deny"}
+    assert [r["event"] for r in fleet.for_decision("d1")] == ["decision", "execution"]
+    assert fleet.verify() is True                         # every stream's chain intact
+
+    # a restart continues the same stream's chain
+    a2 = PostgresAuditSink(dsn, stream_id="replica-a")
+    assert a2.record("decision", decision_id="d3")["sequence"] == 2
+
+    # tamper with one record -> that stream fails verification
+    a2._conn.execute("UPDATE audit SET record = jsonb_set(record, '{decision}', '\"deny\"') "
+                     "WHERE stream_id='replica-a' AND sequence=0")
+    with pytest.raises(AuditIntegrityError):
+        PostgresAuditSink(dsn, stream_id="reader").verify()

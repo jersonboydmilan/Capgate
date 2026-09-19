@@ -174,6 +174,7 @@ def _audit(args) -> int:
 
 
 def _serve(args) -> int:
+    from .audit import open_audit
     from .server import HarnessServer
     from .state import open_state_store
     from .tools import build_tools
@@ -182,7 +183,12 @@ def _serve(args) -> int:
     cfg = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     contracts = [c for source in cfg.get("contracts", []) for c in load_contracts(path.parent / source)]
 
-    audit_path = cfg.get("audit")
+    audit_target = cfg.get("audit")
+    if isinstance(audit_target, str) and "://" not in audit_target and not audit_target.startswith("/"):
+        audit_target = str(path.parent / audit_target)  # relative file path
+    import os as _os
+    if cfg.get("audit_env") and _os.environ.get(cfg["audit_env"]):
+        audit_target = _os.environ[cfg["audit_env"]]  # e.g. a Postgres DSN for a shared sink
     echo = sys.stdout if cfg.get("audit_echo") else None
     signing_key = None
     if cfg.get("signing_key_file") or cfg.get("signing_key_env"):
@@ -190,7 +196,7 @@ def _serve(args) -> int:
     harness = Harness(
         contracts,
         tools=build_tools(cfg.get("tools"), base=path.parent, mcp_servers=cfg.get("mcp_servers")),
-        audit=AuditLog(path.parent / audit_path if audit_path else None, fsync=True, echo=echo),
+        audit=open_audit(audit_target, stream_id=cfg.get("audit_stream"), echo=echo, fsync=True),
         signing_key=signing_key,
         state=open_state_store(_state_url(cfg, path.parent)),
     )

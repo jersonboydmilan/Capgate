@@ -57,7 +57,7 @@ class HarnessAPI:
             authority.state = harness.state  # revocations live with the rest of the authority state
         self.harness = harness
         self.authority = authority
-        self.limiter = RateLimiter(rate_limit)
+        self.limiter = RateLimiter(rate_limit, store=harness.state)
         self._approvers = {a for c in harness.contracts.values() for a in c.approvers}
         self._extra_routes: dict[tuple[str, str], Callable[..., Response]] = {}
 

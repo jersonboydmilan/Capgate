@@ -28,6 +28,14 @@ from pathlib import Path
 from typing import Any, Iterator, Protocol
 
 
+def _bucket_step(tokens: float | None, last: float | None, rate: float, burst: int, now: float) -> tuple[bool, float, float]:
+    """Token-bucket transition. Returns (allowed, new_tokens, retry_seconds)."""
+    tokens = float(burst) if tokens is None else min(burst, tokens + max(0.0, now - (last or now)) * rate)
+    if tokens >= 1:
+        return True, tokens - 1, 0.0
+    return False, tokens, (1 - tokens) / rate
+
+
 class StateStore(Protocol):
     def transaction(self): ...
     def steps(self, contract_id: str) -> int: ...
@@ -42,6 +50,9 @@ class StateStore(Protocol):
     def drain_messages(self, recipient: str) -> list[dict[str, Any]]: ...
     def revoke(self, token_id: str, expires_at: float) -> None: ...
     def is_revoked(self, token_id: str) -> bool: ...
+    # shared rate limiting (multi-host); optional — LocalRateBackend is used when absent
+    def rate_take(self, bucket: str, key: str, rate: float, burst: int, now: float) -> tuple[bool, float]: ...
+    def rate_admit(self, bucket: str, key: str, per_minute: int, now: float) -> tuple[bool, int]: ...
 
 
 class MemoryStateStore:
@@ -53,6 +64,8 @@ class MemoryStateStore:
         self._approvals: dict[str, dict[str, Any]] = {}
         self._messages: dict[str, list[dict[str, Any]]] = {}
         self._revoked: dict[str, float] = {}
+        self._rate: dict[tuple[str, str], tuple[float, float]] = {}
+        self._suppressed: dict[tuple[str, str], int] = {}
 
     @contextmanager
     def transaction(self) -> Iterator[None]:
@@ -107,6 +120,22 @@ class MemoryStateStore:
     def is_revoked(self, token_id: str) -> bool:
         return token_id in self._revoked
 
+    def rate_take(self, bucket: str, key: str, rate: float, burst: int, now: float) -> tuple[bool, float]:
+        with self._lock:
+            tokens, last = self._rate.get((bucket, key), (None, None))
+            allowed, new_tokens, retry = _bucket_step(tokens, last, rate, burst, now)
+            self._rate[(bucket, key)] = (new_tokens, now)
+            return allowed, retry
+
+    def rate_admit(self, bucket: str, key: str, per_minute: int, now: float) -> tuple[bool, int]:
+        allowed, _ = self.rate_take(f"audit:{bucket}", key, per_minute / 60.0, max(per_minute, 1), now)
+        with self._lock:
+            k = (bucket, key)
+            if not allowed:
+                self._suppressed[k] = self._suppressed.get(k, 0) + 1
+                return False, 0
+            return True, self._suppressed.pop(k, 0)
+
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS steps     (contract_id TEXT PRIMARY KEY, n INTEGER NOT NULL);
@@ -117,6 +146,8 @@ CREATE TABLE IF NOT EXISTS messages  (seq INTEGER PRIMARY KEY AUTOINCREMENT, rec
 CREATE TABLE IF NOT EXISTS revoked   (token_id TEXT PRIMARY KEY, expires_at REAL NOT NULL);
 CREATE INDEX IF NOT EXISTS approvals_status ON approvals(status);
 CREATE INDEX IF NOT EXISTS messages_recipient ON messages(recipient);
+CREATE TABLE IF NOT EXISTS rate      (bucket TEXT, key TEXT, tokens REAL NOT NULL, last REAL NOT NULL, PRIMARY KEY (bucket, key));
+CREATE TABLE IF NOT EXISTS rate_suppress (bucket TEXT, key TEXT, n INTEGER NOT NULL, PRIMARY KEY (bucket, key));
 """
 
 
@@ -222,6 +253,27 @@ class SQLiteStateStore:
     def is_revoked(self, token_id: str) -> bool:
         return self._one("SELECT 1 FROM revoked WHERE token_id=?", token_id) is not None
 
+    def rate_take(self, bucket: str, key: str, rate: float, burst: int, now: float) -> tuple[bool, float]:
+        with self.transaction():
+            db = self._connect()
+            row = db.execute("SELECT tokens, last FROM rate WHERE bucket=? AND key=?", (bucket, key)).fetchone()
+            allowed, new_tokens, retry = _bucket_step(row[0] if row else None, row[1] if row else None, rate, burst, now)
+            db.execute("INSERT INTO rate(bucket, key, tokens, last) VALUES(?, ?, ?, ?) "
+                       "ON CONFLICT(bucket, key) DO UPDATE SET tokens=excluded.tokens, last=excluded.last", (bucket, key, new_tokens, now))
+            return allowed, retry
+
+    def rate_admit(self, bucket: str, key: str, per_minute: int, now: float) -> tuple[bool, int]:
+        with self.transaction():
+            allowed, _ = self.rate_take(f"audit:{bucket}", key, per_minute / 60.0, max(per_minute, 1), now)
+            db = self._connect()
+            if not allowed:
+                db.execute("INSERT INTO rate_suppress(bucket, key, n) VALUES(?, ?, 1) "
+                           "ON CONFLICT(bucket, key) DO UPDATE SET n = rate_suppress.n + 1", (bucket, key))
+                return False, 0
+            row = db.execute("SELECT n FROM rate_suppress WHERE bucket=? AND key=?", (bucket, key)).fetchone()
+            db.execute("DELETE FROM rate_suppress WHERE bucket=? AND key=?", (bucket, key))
+            return True, (row[0] if row else 0)
+
     def prune(self, now: float) -> None:
         """Drop grant and revocation rows that have expired; they can no longer be presented."""
         with self.transaction():
@@ -254,6 +306,8 @@ class PostgresStateStore:
         "CREATE TABLE IF NOT EXISTS revoked   (token_id TEXT PRIMARY KEY, expires_at DOUBLE PRECISION NOT NULL);",
         "CREATE INDEX IF NOT EXISTS approvals_status ON approvals(status);",
         "CREATE INDEX IF NOT EXISTS messages_recipient ON messages(recipient, seq);",
+        "CREATE TABLE IF NOT EXISTS rate (bucket TEXT, key TEXT, tokens DOUBLE PRECISION NOT NULL, last DOUBLE PRECISION NOT NULL, PRIMARY KEY (bucket, key));",
+        "CREATE TABLE IF NOT EXISTS rate_suppress (bucket TEXT, key TEXT, n BIGINT NOT NULL, PRIMARY KEY (bucket, key));",
     )
 
     def __init__(self, dsn: str) -> None:
@@ -362,6 +416,27 @@ class PostgresStateStore:
 
     def is_revoked(self, token_id: str) -> bool:
         return self._one("SELECT 1 FROM revoked WHERE token_id=%s", token_id) is not None
+
+    def rate_take(self, bucket: str, key: str, rate: float, burst: int, now: float) -> tuple[bool, float]:
+        conn = self._connect()
+        with conn.transaction():  # per-row lock, no cluster-wide advisory lock: rate checks stay parallel
+            server_now = float(conn.execute("SELECT extract(epoch FROM clock_timestamp())").fetchone()[0])
+            row = conn.execute("SELECT tokens, last FROM rate WHERE bucket=%s AND key=%s FOR UPDATE", (bucket, key)).fetchone()
+            allowed, new_tokens, retry = _bucket_step(row[0] if row else None, row[1] if row else None, rate, burst, server_now)
+            conn.execute("INSERT INTO rate(bucket, key, tokens, last) VALUES(%s, %s, %s, %s) "
+                         "ON CONFLICT(bucket, key) DO UPDATE SET tokens=excluded.tokens, last=excluded.last", (bucket, key, new_tokens, server_now))
+            return allowed, retry
+
+    def rate_admit(self, bucket: str, key: str, per_minute: int, now: float) -> tuple[bool, int]:
+        allowed, _ = self.rate_take(f"audit:{bucket}", key, per_minute / 60.0, max(per_minute, 1), now)
+        conn = self._connect()
+        with conn.transaction():
+            if not allowed:
+                conn.execute("INSERT INTO rate_suppress(bucket, key, n) VALUES(%s, %s, 1) "
+                             "ON CONFLICT(bucket, key) DO UPDATE SET n = rate_suppress.n + 1", (bucket, key))
+                return False, 0
+            row = conn.execute("DELETE FROM rate_suppress WHERE bucket=%s AND key=%s RETURNING n", (bucket, key)).fetchone()
+            return True, (row[0] if row else 0)
 
     def prune(self, now: float) -> None:
         with self.transaction():

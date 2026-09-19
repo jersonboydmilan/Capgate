@@ -57,11 +57,18 @@ Two things to get right across replicas:
 
 - **Share the token signing key** (same `signing_key`/keyring) so an execution
   permit minted on one replica verifies on another.
-- **Rate limits are still per replica.** The token-bucket limiter is in-process;
-  N replicas allow up to N× the per-principal rate. Put a shared limiter (or a
-  fronting proxy's global rate limit) ahead of the fleet if you need a hard
-  cluster-wide cap. The audit trail is also per host (append-only JSONL per
-  replica); ship them to a common sink to query the fleet as one.
+- **Shared rate limits.** Set `rate_limit.shared: true` and the token buckets
+  live in the state store, so per-client and per-principal limits (and the
+  auth-failure audit sampler) hold across the whole fleet, not per replica.
+  On Postgres each bucket is an atomic per-row update (no cluster-wide lock),
+  so rate checks stay parallel. Leave it off (default) for a per-replica
+  in-process limiter.
+- **Shared audit sink.** Point `audit:` (or `audit_env:`) at a `postgresql://`
+  URL and every replica appends to one `audit` table under its own
+  `stream_id`, each stream its own hash chain. One queryable, tamper-evident
+  trail for the fleet, verifiable per stream — with no cross-replica lock,
+  since a replica only extends its own stream. A file path still gives the
+  per-host JSONL trail.
 
 The docker test `tests/integration/test_state_multihost.py` (`pytest -m docker`)
 starts a real Postgres and proves two replicas share one budget exactly and that

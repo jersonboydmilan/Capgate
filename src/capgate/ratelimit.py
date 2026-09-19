@@ -11,8 +11,10 @@ Three token buckets, checked in order:
      counted and summarised in the next record, so a flood cannot grow the
      audit trail without bound while evidence of the flood is kept.
 
-State is in memory and per process. The number of tracked keys is capped;
-idle keys are evicted first, so rotating source addresses cannot exhaust memory.
+By default the buckets are in memory and per process (idle keys evicted, so
+rotating source addresses cannot exhaust memory). With `shared: true` and a
+state store, the buckets live in the store instead, so the limits hold across
+all harness replicas rather than per replica.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Callable
+from typing import Any, Callable
 
 
 @dataclass(frozen=True)
@@ -33,6 +35,7 @@ class RateLimitConfig:
     auth_failure_audit_per_minute: int = 20
     max_tracked_keys: int = 10_000
     enabled: bool = True
+    shared: bool = False   # use the state store so limits are enforced across replicas
 
     @classmethod
     def from_mapping(cls, data: dict | None) -> "RateLimitConfig":
@@ -93,18 +96,34 @@ class AuditSampler:
 
 
 class RateLimiter:
-    def __init__(self, config: RateLimitConfig | None = None, *, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(self, config: RateLimitConfig | None = None, *, clock: Callable[[], float] | None = None, store: Any = None) -> None:
         self.config = config or RateLimitConfig()
         c = self.config
-        self._clients = TokenBucket(c.client_rate, c.client_burst, max_keys=c.max_tracked_keys, clock=clock)
-        self._principals = TokenBucket(c.principal_rate, c.principal_burst, max_keys=c.max_tracked_keys, clock=clock)
-        self._auth_audit = AuditSampler(c.auth_failure_audit_per_minute, max_keys=c.max_tracked_keys, clock=clock)
+        self._store = store if c.shared else None
+        # shared limits must use a wall clock the replicas agree on (Postgres uses its own clock)
+        self._clock = clock or (time.time if self._store is not None else time.monotonic)
+        if self._store is None:
+            self._clients = TokenBucket(c.client_rate, c.client_burst, max_keys=c.max_tracked_keys, clock=self._clock)
+            self._principals = TokenBucket(c.principal_rate, c.principal_burst, max_keys=c.max_tracked_keys, clock=self._clock)
+            self._auth_audit = AuditSampler(c.auth_failure_audit_per_minute, max_keys=c.max_tracked_keys, clock=self._clock)
 
     def client(self, address: str) -> tuple[bool, float]:
-        return self._clients.take(address) if self.config.enabled else (True, 0.0)
+        if not self.config.enabled:
+            return True, 0.0
+        if self._store is not None:
+            return self._store.rate_take("client", address, self.config.client_rate, self.config.client_burst, self._clock())
+        return self._clients.take(address)
 
     def principal(self, principal: str) -> tuple[bool, float]:
-        return self._principals.take(principal) if self.config.enabled else (True, 0.0)
+        if not self.config.enabled:
+            return True, 0.0
+        if self._store is not None:
+            return self._store.rate_take("principal", principal, self.config.principal_rate, self.config.principal_burst, self._clock())
+        return self._principals.take(principal)
 
     def audit_auth_failure(self, address: str) -> tuple[bool, int]:
-        return self._auth_audit.admit(address) if self.config.enabled else (True, 0)
+        if not self.config.enabled:
+            return True, 0
+        if self._store is not None:
+            return self._store.rate_admit("authfail", address, self.config.auth_failure_audit_per_minute, self._clock())
+        return self._auth_audit.admit(address)

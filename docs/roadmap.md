@@ -23,7 +23,9 @@ not enforced today.
 - Property-based fuzzing of the API, policy engine and both HTTP transports.
 - **Multi-host state** on PostgreSQL: budgets, used permits, approvals,
   messages and revocations shared across replicas, serialized by a
-  cluster-wide advisory lock. See [state.md](state.md).
+  cluster-wide advisory lock. Plus a **shared rate limiter** (per-row atomic
+  buckets) and a **shared, tamper-evident audit sink** (per-replica hash
+  chains in one table). See [state.md](state.md).
 - **Workload identity**: tokens bindable to a workload (RFC 8705 cert
   thumbprint + SPIFFE ID), enforced over direct mTLS or a trusted proxy's
   forwarded identity, with a reference SPIFFE-aware mTLS edge (`capgate.mtlsedge`)
@@ -31,18 +33,15 @@ not enforced today.
 
 ## Next
 
-1. **Shared rate limits and audit sink.** Multi-host *state* is done (Postgres);
-   the token-bucket rate limiter and the audit trail are still per replica.
-   Add a shared limiter for a hard cluster-wide cap and a common audit sink.
-2. **Stronger isolation runtime.** A tested gVisor / Kata / Firecracker option,
+1. **Stronger isolation runtime.** A tested gVisor / Kata / Firecracker option,
    and a Kubernetes deployment (NetworkPolicy egress-only-to-harness, secrets
    not mounted into the agent pod, locked-down `securityContext`) with the same
    adversarial tests the Docker deployment has.
-3. **Outside security review.** CI and [SECURITY.md](../SECURITY.md) invite it;
+2. **Outside security review.** CI and [SECURITY.md](../SECURITY.md) invite it;
    it has not happened yet. Every "the boundary holds" claim so far rests on
    tests the authors wrote. This is the single most important open item for
    credibility — see [SECURITY.md](../SECURITY.md) for the exact claims to break.
-4. **More real integrations.** One first-class end-to-end example with an actual
+3. **More real integrations.** One first-class end-to-end example with an actual
    LLM agent loop (not a scripted client) going through the gateway.
 
 ## Explicit non-goals

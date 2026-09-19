@@ -92,3 +92,48 @@ def test_transaction_makes_read_increment_atomic(store):
         t.join()
     assert store.steps("budget") == limit
     assert len(granted) == limit
+
+
+# --- shared rate limiting across instances sharing one store ---
+
+def test_shared_rate_limit_across_instances(tmp_path):
+    """Two RateLimiter instances (two 'replicas') sharing one store enforce one budget."""
+    from capgate.ratelimit import RateLimitConfig, RateLimiter
+
+    store = SQLiteStateStore(tmp_path / "rl.db")
+    clock = [1000.0]
+    cfg = RateLimitConfig(client_rate=1, client_burst=5, shared=True)
+    a = RateLimiter(cfg, clock=lambda: clock[0], store=store)
+    b = RateLimiter(cfg, clock=lambda: clock[0], store=store)
+    allowed = sum((a if i % 2 else b).client("1.2.3.4")[0] for i in range(12))
+    assert allowed == 5                                   # shared burst, not 5 per replica
+    assert b.client("9.9.9.9")[0] is True                 # a different key is independent
+
+
+def test_shared_audit_sampler_across_instances(tmp_path):
+    from capgate.ratelimit import RateLimitConfig, RateLimiter
+
+    store = SQLiteStateStore(tmp_path / "rl.db")
+    clock = [1000.0]
+    cfg = RateLimitConfig(auth_failure_audit_per_minute=2, shared=True)
+    a = RateLimiter(cfg, clock=lambda: clock[0], store=store)
+    b = RateLimiter(cfg, clock=lambda: clock[0], store=store)
+    verdicts = [(a if i % 2 else b).audit_auth_failure("ip") for i in range(4)]
+    assert [v[0] for v in verdicts] == [True, True, False, False]   # 2/min shared
+    clock[0] += 60
+    record, suppressed = a.audit_auth_failure("ip")
+    assert record is True and suppressed == 2                        # the flood is counted
+
+
+def test_shared_config_flag_parsed():
+    from capgate.ratelimit import RateLimitConfig
+
+    assert RateLimitConfig.from_mapping({"shared": True, "client_rate": 5}).shared is True
+    assert RateLimitConfig().shared is False
+
+
+def test_unshared_limiter_needs_no_store():
+    from capgate.ratelimit import RateLimitConfig, RateLimiter
+
+    rl = RateLimiter(RateLimitConfig(client_rate=1, client_burst=2))   # no store
+    assert [rl.client("x")[0] for _ in range(3)] == [True, True, False]

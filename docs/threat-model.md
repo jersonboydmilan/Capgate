@@ -127,11 +127,11 @@ compromised agent.
   revocations survive restarts and, on Postgres, are consistent across
   replicas. Grants survive a restart / cross a replica only with a stable
   signing key. **Rate limits and the audit trail remain per replica** (see
-  [state.md](state.md)). See also the multi-host tests.
-- **Rate limits are per process and in memory.** Per-client and per-principal
-  token buckets, plus sampled auditing of failed authentication, bound request
-  floods and audit growth for one harness process. Several replicas each apply
-  their own limits; a shared limiter is not implemented.
+  [state.md](state.md)) — the limiter and audit sink can also be shared via the
+  state store / a `postgresql://` audit URL. See also the multi-host tests.
+- **Rate limits: per replica by default, or shared.** In-process token buckets
+  bound floods per replica; with `rate_limit.shared: true` and a state store the
+  buckets are shared, so per-client/per-principal limits hold across the fleet.
 - **Audit tamper-evidence is local.** The hash chain detects edits within the
   file. Ship records to append-only storage to protect against deletion.
 - **Tokens are bearer tokens unless bound.** They are short-lived (verifier-

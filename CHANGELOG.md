@@ -6,6 +6,14 @@ release yet; the sections below track the milestones on `main`.
 ## Unreleased
 
 ### Multi-host state
+- Shared rate limiting: `rate_limit.shared: true` moves the per-client and
+  per-principal token buckets (and the auth-failure audit sampler) into the
+  state store, so limits hold across replicas. On Postgres each bucket is an
+  atomic per-row update — no cluster-wide lock on the hot path.
+- Shared audit sink: `PostgresAuditSink` / `open_audit(url)` — every replica
+  appends to one `audit` table under its own hash-chained `stream_id`; one
+  queryable, tamper-evident trail, verifiable per stream. `serve` `audit:` /
+  `audit_env:` accept a postgresql:// URL.
 - `PostgresStateStore` and `open_state_store(url)`: choose the state backend
   by URL — `memory://`, `sqlite://`/path, or `postgresql://` for many
   replicas sharing budgets, used permits, approvals, messages and
