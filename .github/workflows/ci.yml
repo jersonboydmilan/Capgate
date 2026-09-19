@@ -51,4 +51,37 @@ jobs:
       - name: Fetch offline build artifacts
         run: uv run --no-sync python deploy/fetch_artifacts.py
       - name: Containerised isolation, mTLS edge and multi-host state
-        run: uv run --no-sync pytest -q -m docker
+        run: uv run --no-sync pytest -q -m "docker and not gvisor"
+
+  gvisor:
+    name: gvisor (isolation under a user-space kernel)
+    # Installs gVisor and re-runs the isolation attack with the agent under runsc.
+    # Heavy; on demand and nightly, not on every push.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install gVisor (runsc) and register it with Docker
+        run: |
+          set -euo pipefail
+          ARCH=$(uname -m)
+          URL="https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}"
+          wget --quiet "${URL}/runsc" "${URL}/runsc.sha512" \
+               "${URL}/containerd-shim-runsc-v1" "${URL}/containerd-shim-runsc-v1.sha512"
+          sha512sum -c runsc.sha512 -c containerd-shim-runsc-v1.sha512
+          chmod a+rx runsc containerd-shim-runsc-v1
+          sudo mv runsc containerd-shim-runsc-v1 /usr/local/bin
+          sudo /usr/local/bin/runsc install
+          sudo systemctl reload docker
+          docker info --format '{{json .Runtimes}}' | grep -q runsc
+      - name: Create the environment
+        run: |
+          uv venv --python 3.12
+          uv pip install -e ".[dev]"
+      - name: Fetch offline build artifacts
+        run: uv run --no-sync python deploy/fetch_artifacts.py
+      - name: Isolation attack with the agent under gVisor
+        run: uv run --no-sync pytest -q -m gvisor

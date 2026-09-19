@@ -1,0 +1,43 @@
+# gVisor (runsc) overlay for the reference deployment.
+#
+# Runs the *untrusted* agent container under gVisor — a user-space kernel that
+# intercepts the container's syscalls in a sandboxed Sentry process, so a kernel
+# exploit in code the agent runs reaches gVisor's re-implementation of the Linux
+# ABI, not the host kernel. This is the kernel-isolation layer the plain runc
+# deployment (shared host kernel, hardened with cap_drop/no-new-privileges/
+# read_only/seccomp) does not have.
+#
+# Merge it onto the base deployment (order matters — this file second):
+#
+#   cd deploy
+#   docker compose -f docker-compose.yml -f gvisor/docker-compose.gvisor.yml \
+#       --profile agent build
+#   docker compose -f docker-compose.yml -f gvisor/docker-compose.gvisor.yml \
+#       up -d --wait harness proxy misattached-tool netguard
+#   docker compose -f docker-compose.yml -f gvisor/docker-compose.gvisor.yml \
+#       run --rm agent
+#
+# or just:  python deploy/demo.py --gvisor
+#
+# Requires the runsc runtime installed and registered in the Docker daemon
+# (see README.md in this directory). Everything else about the deployment is
+# unchanged, so the *same* adversarial suite runs against it.
+#
+# Why only the agent:
+#   * The agent is the only container that runs untrusted code, so it is the
+#     only one whose kernel-attack surface matters for a compromise. harness,
+#     tools and proxy run our code and stay on runc.
+#   * netguard MUST stay on runc: it owns the agent's network namespace and
+#     needs real NET_ADMIN + iptables to install the egress allowlist. The agent
+#     joins that namespace (network_mode: service:netguard) while running under
+#     gVisor; the adversarial tests assert the allowlist still governs the
+#     gVisor container's egress (see tests/adversarial/isolation/test_gvisor_runtime.py).
+#
+# For defense-in-depth you may also add `runtime: runsc` to `tools` (and even
+# `harness`); they do not share a network namespace, so there is no netguard
+# interaction to worry about. It is left off here to keep the claim precise:
+# "the container running untrusted agent code runs under a user-space kernel".
+
+services:
+  agent:
+    runtime: runsc

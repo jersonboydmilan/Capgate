@@ -33,13 +33,20 @@ not enforced today.
   thumbprint + SPIFFE ID), enforced over direct mTLS or a trusted proxy's
   forwarded identity, with a reference SPIFFE-aware mTLS edge (`capgate.mtlsedge`)
   wired into the containerised demo. See [workload-identity.md](workload-identity.md).
+- **Kernel-isolation runtime (gVisor)**: the untrusted agent runs under a
+  user-space kernel (`runsc`) via `deploy/gvisor/`, and the full adversarial
+  suite re-runs against it — asserting the runtime really is `runsc` and that
+  netguard's egress allowlist still governs the gVisor container. Kata /
+  Firecracker follow the same overlay pattern (documented; they need KVM, which
+  CI runners lack). See [isolation.md](isolation.md).
 
 ## Next
 
-1. **Stronger isolation runtime.** A tested gVisor / Kata / Firecracker option,
-   and a Kubernetes deployment (NetworkPolicy egress-only-to-harness, secrets
-   not mounted into the agent pod, locked-down `securityContext`) with the same
-   adversarial tests the Docker deployment has.
+1. **Stronger isolation runtime — Kubernetes.** The gVisor runtime option is
+   done (above). What remains is a Kubernetes deployment mirroring the topology
+   (NetworkPolicy egress-only-to-harness, secrets not mounted into the agent pod,
+   a locked-down `securityContext`, a `RuntimeClass` selecting gVisor) with the
+   same adversarial tests the Docker deployment has.
 2. **Outside security review.** CI and [SECURITY.md](../SECURITY.md) invite it;
    it has not happened yet. Every "the boundary holds" claim so far rests on
    tests the authors wrote. This is the single most important open item for

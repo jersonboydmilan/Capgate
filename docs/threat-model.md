@@ -100,7 +100,7 @@ compromised agent.
 | Agent credential is short-lived and unforgeable | Signed tokens, 15-minute issuance, verifier TTL cap, revocation | Yes — 9 credential attacks |
 | Agent process is unprivileged and immutable | `cap_drop: ALL`, `no-new-privileges`, non-root, read-only root fs, pids limit | Yes |
 | Side effects only via authorize → permit → executor | Tool service requires the executor-only credential; ledger as ground truth | Yes — ledger, decoy ledger, audit correlation, harness log |
-| Kernel / runtime escape | — | **No.** Use gVisor or a microVM runtime |
+| Kernel / runtime escape | Optional gVisor (`runsc`) runtime for the untrusted agent — a user-space kernel that intercepts syscalls (`deploy/gvisor/`); Kata / Firecracker follow the same overlay pattern | **Yes, with gVisor** — the `gvisor` job re-runs the full attack with the agent under `runsc`, asserting the runtime is really `runsc` and the egress allowlist still holds (`test_gvisor_runtime.py`). Plain runc shares the host kernel: **No**. See [isolation.md](isolation.md) |
 | Compromised Docker host or daemon access | — | **No.** The host is trusted |
 | Harness process compromise via its own API bugs | Narrow API, strict parsing, fail-closed errors | **Partially** — tested behaviour only |
 | Multi-host / Kubernetes deployments | — | **No.** Equivalent controls described in `deploy/README.md`, untested |
@@ -152,4 +152,4 @@ compromised agent.
 6. CI on every push and a nightly deep-fuzz run — done (`.github/workflows`); outside security review is invited but has not happened yet (`SECURITY.md`).
 7. ~~Workload identity (mTLS / SPIFFE) binding a token to the calling workload~~ — done (`docs/workload-identity.md`). Next: a SPIFFE-aware edge in the reference Docker deployment.
 8. Multi-host state and shared rate limits.
-9. Stronger isolation runtime (gVisor / Kata / Firecracker) and a tested Kubernetes deployment.
+9. ~~Stronger isolation runtime (gVisor / Kata / Firecracker)~~ — gVisor done (`deploy/gvisor/`, `test_gvisor_runtime.py`); Kata/Firecracker documented. Next: a tested Kubernetes deployment.

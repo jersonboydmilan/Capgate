@@ -1,0 +1,87 @@
+# Isolation runtime
+
+Capgate is an *authority* boundary: the agent proposes, the harness authorizes,
+the executor acts. That boundary is only as trustworthy as the isolation under
+the container that runs untrusted agent code — a kernel escape there sidesteps
+every capability check above it. This page describes the isolation the reference
+deployment provides and how to strengthen the runtime under it.
+
+## Layers, from the base deployment up
+
+The reference deployment (`deploy/docker-compose.yml`) confines the untrusted
+agent with, in order:
+
+1. **Network topology.** Three `internal` Docker networks with no gateway, so the
+   agent has no route to the host, the internet, or cloud metadata at layer 3 at
+   all. The agent is attached only to `agent_net`, alongside the proxy.
+2. **An egress allowlist.** `netguard` owns the agent's network namespace and
+   installs an iptables policy of `DROP`, permitting only TCP to `proxy:8080`.
+   The agent joins that namespace with every capability dropped, so it cannot
+   change the rules.
+3. **An HTTP edge.** nginx in front of uvicorn bounds request sizes and timeouts
+   and forwards only the documented API paths.
+4. **Process hardening.** `cap_drop: ALL`, `no-new-privileges`, a read-only root
+   filesystem, a `noexec,nosuid` tmpfs, a pids limit, and a non-root user.
+5. **Secret partitioning.** Harness signing keys and tool credentials live in
+   volumes the agent never mounts; the agent holds only one short-lived token.
+
+Every one of those is asserted from *inside* a compromised agent by the
+adversarial suite (`tests/adversarial/isolation/`, `pytest -m docker`).
+
+## The gap layers 1–5 leave: the shared kernel
+
+All of the above still runs on **one host kernel**, shared with the agent. runc
+hardening shrinks what the agent may *ask* the kernel to do, but a kernel-level
+exploit in code the agent runs executes against the host kernel directly. For a
+multi-tenant host, that is the difference between "an agent exceeded its
+contract" (contained, audited) and "an agent owns the box".
+
+## Closing it: a user-space or virtualized kernel
+
+`deploy/gvisor/docker-compose.gvisor.yml` runs the agent under
+**[gVisor](https://gvisor.dev)** (`runsc`), an application kernel in user space
+that intercepts the container's syscalls. The agent then talks to gVisor's
+re-implementation of the Linux ABI, not the host kernel; the host-kernel surface
+exposed to the agent shrinks from all of Linux to the narrow set gVisor makes for
+itself.
+
+```bash
+python deploy/demo.py --gvisor        # build, attack under gVisor, report
+```
+
+See [`deploy/gvisor/README.md`](../deploy/gvisor/README.md) to install `runsc`
+and for the compose invocation.
+
+### What is tested
+
+The gVisor variant runs the **same** adversarial suite, plus
+`tests/adversarial/isolation/test_gvisor_runtime.py`, which additionally asserts:
+
+- the agent container's OCI runtime really is `runsc` — so a silent fall back to
+  runc can never pass as "gVisor tested"; and
+- netguard's egress allowlist still governs the gVisor container: running under
+  gVisor's own network stack while joined to netguard's (runc-owned) network
+  namespace, the agent still reaches only `proxy:8080` — internet, cloud
+  metadata, the real tool, the decoy tool on its own network, and other harness
+  ports all stay blocked.
+
+The `gvisor` CI job (on demand and nightly) installs `runsc` and runs
+`pytest -m gvisor` on a Linux runner.
+
+### Kata / Firecracker
+
+gVisor is the runtime CI tests because it installs on ordinary Linux runners
+without nested virtualization. For hardware-level isolation, the same overlay
+pattern points at a VM-based runtime — **Kata Containers** (`runtime:
+kata-runtime`) or **Firecracker** (via Kata's Firecracker backend or
+`firecracker-containerd`). Both need `/dev/kvm`, which GitHub-hosted runners do
+not provide, so they are documented rather than wired into CI. The authority
+boundary and the adversarial tests are runtime-independent.
+
+## Kubernetes
+
+Status: **planned** (see [roadmap.md](roadmap.md)). The target is a Kubernetes
+deployment that mirrors this topology — `NetworkPolicy` restricting agent egress
+to the harness, secrets not mounted into the agent pod, a locked-down
+`securityContext`, and a `RuntimeClass` selecting gVisor — running the same
+adversarial tests.

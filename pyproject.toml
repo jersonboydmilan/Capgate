@@ -27,5 +27,8 @@ packages = ["src/capgate", "sdk/python/capgate_client"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--import-mode=importlib -q -m 'not docker'"
-markers = ["docker: builds and attacks the isolated runtime (slow; run with -m docker)"]
+markers = [
+    "docker: builds and attacks the isolated runtime (slow; run with -m docker)",
+    "gvisor: runs the isolated-runtime attack with the agent under gVisor/runsc (needs the runsc runtime; run with -m gvisor)",
+]
 pythonpath = ["src", "sdk/python", "tests"]

@@ -5,6 +5,21 @@ release yet; the sections below track the milestones on `main`.
 
 ## Unreleased
 
+### Kernel-isolation runtime (gVisor)
+- `deploy/gvisor/docker-compose.gvisor.yml`: an overlay that runs the untrusted
+  agent under gVisor (`runsc`), a user-space kernel, instead of sharing the host
+  kernel. `python deploy/demo.py --gvisor` builds and attacks the stack under
+  gVisor. See `deploy/gvisor/README.md` and `docs/isolation.md`.
+- `tests/adversarial/isolation/test_gvisor_runtime.py` (marker `gvisor`): brings
+  up the deployment with the overlay and asserts the agent's OCI runtime really
+  is `runsc` (no silent fall back to runc) and that every boundary check still
+  holds — in particular, netguard's iptables egress allowlist still governs the
+  gVisor container's own network stack. New `gvisor` CI job installs `runsc` and
+  runs it on demand and nightly; the base `docker` job now selects
+  `docker and not gvisor`.
+- Kata / Firecracker documented as the same overlay pattern for VM-based
+  runtimes (they need KVM, which CI runners lack).
+
 ### Real agent-loop example
 - `examples/agent_loop`: a provider-agnostic, model-driven tool-use loop whose
   tools are Capgate-authorized actions from the MCP gateway. `AnthropicModel`

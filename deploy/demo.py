@@ -27,6 +27,7 @@ from typing import Any
 
 HERE = Path(__file__).resolve().parent
 COMPOSE_FILE = HERE / "docker-compose.yml"
+GVISOR_OVERLAY = HERE / "gvisor" / "docker-compose.gvisor.yml"
 
 # Material the agent must never be able to find. Its own token is the scanner's positive control.
 PROTECTED = ("tool_credential", "signing_key", "token_key")
@@ -41,6 +42,18 @@ def docker_available() -> bool:
         return False
 
 
+def runsc_available() -> bool:
+    """True when the Docker daemon has the gVisor (runsc) runtime registered."""
+    try:
+        out = subprocess.run(
+            ["docker", "info", "--format", "{{json .Runtimes}}"],
+            capture_output=True, check=True, timeout=20, text=True,
+        ).stdout
+        return "runsc" in json.loads(out or "{}")
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+
+
 def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -51,9 +64,13 @@ def _free_port() -> int:
 class Stack:
     project: str
     env: dict[str, str] = field(default_factory=dict)
+    compose_files: tuple[Path, ...] = (COMPOSE_FILE,)
 
     def compose(self, *args: str, check: bool = True, timeout: int = 900) -> subprocess.CompletedProcess:
-        cmd = ["docker", "compose", "-p", self.project, "-f", str(COMPOSE_FILE), *args]
+        files: list[str] = []
+        for path in self.compose_files:
+            files += ["-f", str(path)]
+        cmd = ["docker", "compose", "-p", self.project, *files, *args]
         proc = subprocess.run(cmd, cwd=HERE, env={**os.environ, **self.env}, capture_output=True, text=True, timeout=timeout)
         if check and proc.returncode != 0:
             raise RuntimeError(f"{' '.join(cmd)} failed:\n{proc.stdout}\n{proc.stderr}")
@@ -70,13 +87,23 @@ class Stack:
         nets = json.loads(subprocess.run(["docker", "inspect", "-f", "{{json .NetworkSettings.Networks}}", cid], capture_output=True, text=True, check=True).stdout)
         return nets[f"{self.project}_{network}"]["IPAddress"]
 
+    def service_runtime(self, service: str) -> str:
+        """The OCI runtime a running service's container was started with (e.g. 'runc' or 'runsc')."""
+        cid = self.compose("ps", "-a", "-q", service).stdout.strip().splitlines()[0]
+        return subprocess.run(
+            ["docker", "inspect", "-f", "{{.HostConfig.Runtime}}", cid],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
 
-def create_stack() -> Stack:
+
+def create_stack(*, gvisor: bool = False) -> Stack:
     import random
 
     project = f"capgate-test-{uuid.uuid4().hex[:8]}"
     subnet = f"172.31.{random.randint(1, 249)}.0/24"  # api_net; distinct per stack so parallel stacks don't collide
-    return Stack(project, {"CAPGATE_PREFIX": project, "CAPGATE_HOST_PORT": str(_free_port()), "CAPGATE_API_SUBNET": subnet})
+    env = {"CAPGATE_PREFIX": project, "CAPGATE_HOST_PORT": str(_free_port()), "CAPGATE_API_SUBNET": subnet}
+    files = (COMPOSE_FILE, GVISOR_OVERLAY) if gvisor else (COMPOSE_FILE,)
+    return Stack(project, env, files)
 
 
 def ensure_artifacts() -> None:
@@ -235,14 +262,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--keep", action="store_true", help="do not tear the stack down")
+    parser.add_argument("--gvisor", action="store_true", help="run the untrusted agent under the gVisor (runsc) runtime")
     args = parser.parse_args()
     if not docker_available():
         print("docker with compose v2 is required", file=sys.stderr)
         return 2
+    if args.gvisor and not runsc_available():
+        print("the gVisor (runsc) runtime is not registered in the Docker daemon; see deploy/gvisor/README.md", file=sys.stderr)
+        return 2
 
-    stack = create_stack()
+    stack = create_stack(gvisor=args.gvisor)
     try:
-        print(f"building and starting isolated deployment ({stack.project})…", file=sys.stderr)
+        runtime = "gVisor (runsc)" if args.gvisor else "runc"
+        print(f"building and starting isolated deployment ({stack.project}) on {runtime}…", file=sys.stderr)
         result = run_attack(stack)
     finally:
         if not args.keep:
