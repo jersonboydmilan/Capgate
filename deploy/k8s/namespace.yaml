@@ -1,0 +1,13 @@
+# Namespace for the whole deployment, with Pod Security Admission set to
+# "restricted": the strictest built-in standard (non-root, no privilege
+# escalation, dropped capabilities, seccomp). Every pod below already complies;
+# the label makes the API server reject any that would not.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: capgate
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted

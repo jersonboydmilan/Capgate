@@ -34,6 +34,34 @@ jobs:
       - name: Test suite (${{ matrix.transport }} transport)
         run: uv run --no-sync pytest -q
 
+  k8s:
+    name: k8s (manifest schema + isolation invariants)
+    # Static validation: fast, no cluster. Renders the kustomize base, schema-checks
+    # it, and asserts the agent-isolation invariants (deploy/k8s/validate.py).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          ver=0.6.7
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/v${ver}/kubeconform-linux-amd64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin kubeconform
+          kubeconform -v
+      - name: Create the environment (PyYAML for the invariant checker)
+        run: |
+          uv venv --python 3.12
+          uv pip install -e ".[dev]"
+      - name: Render manifests
+        run: kubectl kustomize --load-restrictor LoadRestrictionsNone deploy/k8s > /tmp/capgate-k8s.yaml
+      - name: Schema validation (kubeconform)
+        run: kubeconform -strict -summary -kubernetes-version 1.29.0 /tmp/capgate-k8s.yaml
+      - name: Isolation invariants
+        run: uv run --no-sync python deploy/k8s/validate.py /tmp/capgate-k8s.yaml
+
   docker:
     name: docker (isolation, mTLS edge, multi-host state)
     # Heavy (builds images, drives containers with iptables). On demand and nightly, not on every push.

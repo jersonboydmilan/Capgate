@@ -1,0 +1,55 @@
+# Tool service: performs the real side effects. Reachable only from the harness
+# (NetworkPolicy). Holds the executor-only tool credential; the agent cannot
+# reach it and does not have the credential.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tools
+  namespace: capgate
+  labels: {app: tools}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: tools}
+  template:
+    metadata:
+      labels: {app: tools}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 20001
+        runAsGroup: 20001
+        fsGroup: 20001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: tools
+          image: capgate-harness:local   # same image; runs the toolservice module
+          imagePullPolicy: IfNotPresent
+          command: ["python3", "-m", "capgate.toolservice", "--host", "0.0.0.0", "--port", "9100",
+                    "--credential-file", "/tool-credential/tool_credential", "--ledger", "/data/ledger.jsonl"]
+          ports: [{containerPort: 9100}]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: tool-credential, mountPath: /tool-credential/tool_credential, subPath: tool_credential, readOnly: true}
+            - {name: data, mountPath: /data}
+          readinessProbe:
+            httpGet: {path: /health, port: 9100}
+            periodSeconds: 2
+      volumes:
+        - name: tool-credential
+          secret: {secretName: tool-credential}
+        - name: data
+          emptyDir: {sizeLimit: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tools
+  namespace: capgate
+spec:
+  selector: {app: tools}
+  ports: [{port: 9100, targetPort: 9100}]

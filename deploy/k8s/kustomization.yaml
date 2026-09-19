@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - runtimeclass.yaml
+  - harness.yaml
+  - tools.yaml
+  - proxy.yaml
+  - agent.yaml
+  - networkpolicies.yaml
+
+# Reuse the Docker deployment's real config as ConfigMaps — one source of truth,
+# no drift. Stable names (no hash suffix) so the Deployments reference them plainly.
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+  - name: harness-config
+    namespace: capgate
+    files:
+      - server.yaml=../config/server.yaml
+      - contracts.yaml=../config/contracts.yaml
+  - name: nginx-config
+    namespace: capgate
+    files:
+      - nginx.conf=../proxy/nginx.conf

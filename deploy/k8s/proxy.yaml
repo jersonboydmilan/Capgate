@@ -1,0 +1,51 @@
+# nginx edge in front of the harness: bounds request sizes and timeouts and
+# forwards only the documented API paths. The only thing the agent may reach.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxy
+  namespace: capgate
+  labels: {app: proxy}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: proxy}
+  template:
+    metadata:
+      labels: {app: proxy}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 20001
+        runAsGroup: 20001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: proxy
+          image: capgate-proxy:local
+          imagePullPolicy: IfNotPresent
+          ports: [{containerPort: 8080}]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: nginx-config, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+          readinessProbe:
+            httpGet: {path: /v1/health, port: 8080}
+            periodSeconds: 2
+      volumes:
+        - name: nginx-config
+          configMap: {name: nginx-config}
+        - name: tmp
+          emptyDir: {medium: Memory, sizeLimit: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proxy
+  namespace: capgate
+spec:
+  selector: {app: proxy}
+  ports: [{port: 8080, targetPort: 8080}]

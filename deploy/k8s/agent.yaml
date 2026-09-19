@@ -1,0 +1,50 @@
+# The untrusted agent, as a run-once Job. This is the pod the whole deployment is
+# built to contain:
+#   * runtimeClassName: gvisor        -> runs under a user-space kernel
+#   * mounts ONLY its own short-lived token; no harness secrets, no tool
+#     credential, no config, no service-account token
+#   * egress restricted by NetworkPolicy to the proxy alone (see networkpolicies.yaml)
+#   * runs as a non-root, unprivileged, read-only-rootfs, all-capabilities-dropped
+#     container under the RuntimeDefault seccomp profile
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: agent
+  namespace: capgate
+  labels: {app: agent}
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels: {app: agent}
+    spec:
+      runtimeClassName: gvisor
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 20001
+        runAsGroup: 20001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: agent
+          image: capgate-agent:local
+          imagePullPolicy: IfNotPresent
+          command: ["python3", "malicious_agent.py"]
+          env:
+            - {name: CAPGATE_URL, value: "http://proxy:8080"}
+            - {name: AGENT_TOKEN_FILE, value: /run/agent/token}
+            - {name: TOOL_URL, value: "http://tools:9100"}   # assume the attacker knows where the real tool lives
+            - {name: PROBE_ISOLATION, value: "1"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: token, mountPath: /run/agent, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: token
+          secret: {secretName: agent-token}   # the ONLY secret the agent mounts
+        - name: tmp
+          emptyDir: {medium: Memory, sizeLimit: 16Mi}

@@ -1,0 +1,110 @@
+# Network isolation, the Kubernetes-native equivalent of the Docker deployment's
+# internal networks + netguard iptables allowlist. Requires a CNI that enforces
+# NetworkPolicy (Calico, Cilium, ...); kindnet and the default GKE dataplane do
+# not enforce egress. Default-deny, then open exactly the documented edges:
+#
+#   agent ──► proxy:8080 ──► harness:8080 ──► tools:9100
+#
+# The agent can reach the proxy and nothing else. It cannot reach the harness,
+# the tool service, other pods, the internet, or cloud metadata.
+
+# 1. Default deny all ingress and egress for every pod in the namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: capgate
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# 2. Every pod may resolve names via kube-dns (needed for Service DNS).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: capgate
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+---
+# 3. The agent: egress ONLY to the proxy on 8080. No ingress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-egress-proxy-only
+  namespace: capgate
+spec:
+  podSelector:
+    matchLabels: {app: agent}
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - podSelector: {matchLabels: {app: proxy}}
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+# 4. The proxy: ingress from the agent; egress to the harness.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: proxy
+  namespace: capgate
+spec:
+  podSelector:
+    matchLabels: {app: proxy}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app: agent}}
+      ports:
+        - {protocol: TCP, port: 8080}
+  egress:
+    - to:
+        - podSelector: {matchLabels: {app: harness}}
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+# 5. The harness: ingress from the proxy; egress to the tool service.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: harness
+  namespace: capgate
+spec:
+  podSelector:
+    matchLabels: {app: harness}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app: proxy}}
+      ports:
+        - {protocol: TCP, port: 8080}
+  egress:
+    - to:
+        - podSelector: {matchLabels: {app: tools}}
+      ports:
+        - {protocol: TCP, port: 9100}
+---
+# 6. The tool service: ingress from the harness only. No egress but DNS (rule 2).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tools
+  namespace: capgate
+spec:
+  podSelector:
+    matchLabels: {app: tools}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app: harness}}
+      ports:
+        - {protocol: TCP, port: 9100}

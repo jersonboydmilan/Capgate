@@ -86,8 +86,27 @@ boundary and the adversarial tests are runtime-independent.
 
 ## Kubernetes
 
-Status: **planned** (see [roadmap.md](roadmap.md)). The target is a Kubernetes
-deployment that mirrors this topology — `NetworkPolicy` restricting agent egress
-to the harness, secrets not mounted into the agent pod, a locked-down
-`securityContext`, and a `RuntimeClass` selecting gVisor — running the same
-adversarial tests.
+`deploy/k8s/` is a kustomize base that mirrors this topology in Kubernetes:
+
+- **`NetworkPolicy`** — default-deny plus the four documented edges
+  (`agent → proxy → harness → tools`), the native equivalent of the internal
+  networks + netguard allowlist. Needs a CNI that enforces egress (Calico,
+  Cilium).
+- **`RuntimeClass: gvisor`** on the agent pod — the same kernel isolation as the
+  Docker overlay.
+- **Secrets** mounted only into harness/tools; the agent pod mounts **only** its
+  own short-lived token.
+- A locked-down `securityContext` on every pod, plus namespace Pod Security
+  Admission `enforce: restricted`.
+
+`deploy/k8s/validate.py` asserts these security invariants on the rendered
+manifests — the static equivalent of the Docker adversarial suite: the agent runs
+under gVisor, mounts no harness secret, is fully unprivileged, and its egress is
+restricted to the proxy. The `k8s` CI job runs `kubeconform` (schema) and that
+validator on every push. See [`deploy/k8s/README.md`](../deploy/k8s/README.md).
+
+Still open: a **live** end-to-end run (kind + a NetworkPolicy-enforcing CNI +
+gVisor, running the agent `Job` and asserting the same ground truth the Docker
+job does). The manifests and the invariant checker are the foundation for it;
+until it lands, the runtime adversarial guarantee is carried by the gVisor Docker
+job (`pytest -m gvisor`).

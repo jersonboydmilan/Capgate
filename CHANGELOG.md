@@ -5,18 +5,34 @@ release yet; the sections below track the milestones on `main`.
 
 ## Unreleased
 
+### Kubernetes deployment
+- `deploy/k8s/`: a kustomize base mirroring the Docker topology — default-deny
+  `NetworkPolicy` (egress `agent → proxy → harness → tools`), `RuntimeClass:
+  gvisor` on the agent pod, Secrets kept out of the agent pod (it mounts only its
+  own token), locked-down `securityContext` on every pod, and namespace Pod
+  Security `enforce: restricted`. ConfigMaps are built from the Docker
+  deployment's real config files (one source of truth). `bootstrap.sh` mints the
+  Secrets and the agent token.
+- `deploy/k8s/validate.py`: static invariant checks — the agent runs under
+  gVisor, mounts no harness secret, is fully unprivileged, and its egress is
+  restricted to the proxy. New `k8s` CI job runs `kubeconform` (schema) and the
+  validator on every push. See `deploy/k8s/README.md` and `docs/isolation.md`.
+- A live cluster end-to-end run (kind + NetworkPolicy CNI + gVisor) is the next
+  step; the manifests and validator are the foundation.
+
 ### Kernel-isolation runtime (gVisor)
 - `deploy/gvisor/docker-compose.gvisor.yml`: an overlay that runs the untrusted
   agent under gVisor (`runsc`), a user-space kernel, instead of sharing the host
   kernel. `python deploy/demo.py --gvisor` builds and attacks the stack under
   gVisor. See `deploy/gvisor/README.md` and `docs/isolation.md`.
 - `tests/adversarial/isolation/test_gvisor_runtime.py` (marker `gvisor`): brings
-  up the deployment with the overlay and asserts the agent's OCI runtime really
-  is `runsc` (no silent fall back to runc) and that every boundary check still
-  holds — in particular, netguard's iptables egress allowlist still governs the
-  gVisor container's own network stack. New `gvisor` CI job installs `runsc` and
-  runs it on demand and nightly; the base `docker` job now selects
-  `docker and not gvisor`.
+  up the deployment with the overlay and asserts the agent actually ran under
+  gVisor (from inside the guest, via `/proc/version` — no silent fall back to
+  runc) and that every boundary check still holds, including netguard's iptables
+  egress allowlist governing the sandboxed agent. runsc is registered with
+  host-network passthrough so the netns firewall and Docker DNS apply as on runc;
+  gVisor adds kernel isolation. New `gvisor` CI job installs `runsc` and runs it
+  on demand and nightly; the base `docker` job now selects `docker and not gvisor`.
 - Kata / Firecracker documented as the same overlay pattern for VM-based
   runtimes (they need KVM, which CI runners lack).
 

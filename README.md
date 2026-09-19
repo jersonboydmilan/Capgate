@@ -351,10 +351,10 @@ src/harness/      contract, capability, policy, decision, request, interceptor,
                   upstream, stdio bridge)
 sdk/python/       capgate_client — thin HTTP client
 examples/         basic, simulation, delegation-boundary, adversarial-agent, inspect, mcp, agent_loop
-deploy/           reference isolated deployment: compose, harness/, agent/, network/, proxy/ (nginx), demo
+deploy/           reference isolated deployment: compose, harness/, agent/, network/, proxy/ (nginx), gvisor/, k8s/, demo
 policies/         reusable contract templates
-docs/             architecture, contracts, capabilities, delegation, simulation, mcp, inspect, threat model
-.github/          CI: 3.10–3.13 × both transports, docker isolation, nightly deep fuzz
+docs/             architecture, contracts, capabilities, delegation, simulation, mcp, inspect, isolation, threat model
+.github/          CI: 3.10–3.13 × both transports, k8s manifests, docker + gVisor isolation, nightly deep fuzz
 DESIGN.md         the five invariants  ·  SECURITY.md  ·  CONTRIBUTING.md
 ```
 

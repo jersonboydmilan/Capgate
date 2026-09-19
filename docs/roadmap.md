@@ -35,18 +35,23 @@ not enforced today.
   wired into the containerised demo. See [workload-identity.md](workload-identity.md).
 - **Kernel-isolation runtime (gVisor)**: the untrusted agent runs under a
   user-space kernel (`runsc`) via `deploy/gvisor/`, and the full adversarial
-  suite re-runs against it — asserting the runtime really is `runsc` and that
-  netguard's egress allowlist still governs the gVisor container. Kata /
+  suite re-runs against it — asserting the agent really ran under gVisor and that
+  netguard's egress allowlist still governs it (host-network passthrough). Kata /
   Firecracker follow the same overlay pattern (documented; they need KVM, which
   CI runners lack). See [isolation.md](isolation.md).
+- **Kubernetes deployment**: `deploy/k8s/` mirrors the topology — default-deny
+  `NetworkPolicy` (egress `agent → proxy → harness → tools`), `RuntimeClass:
+  gvisor` on the agent, secrets kept out of the agent pod, a locked-down
+  `securityContext`, and namespace Pod Security `restricted`. The `k8s` CI job
+  schema-checks the manifests (`kubeconform`) and asserts the agent-isolation
+  invariants (`deploy/k8s/validate.py`) on every push.
 
 ## Next
 
-1. **Stronger isolation runtime — Kubernetes.** The gVisor runtime option is
-   done (above). What remains is a Kubernetes deployment mirroring the topology
-   (NetworkPolicy egress-only-to-harness, secrets not mounted into the agent pod,
-   a locked-down `securityContext`, a `RuntimeClass` selecting gVisor) with the
-   same adversarial tests the Docker deployment has.
+1. **Live Kubernetes end-to-end test.** The manifests and static invariant checks
+   are done (above); what remains is a live run — kind (or equivalent) with a
+   NetworkPolicy-enforcing CNI and gVisor, running the agent `Job` and asserting
+   the same ground truth the Docker adversarial job does.
 2. **Outside security review.** CI and [SECURITY.md](../SECURITY.md) invite it;
    it has not happened yet. Every "the boundary holds" claim so far rests on
    tests the authors wrote. This is the single most important open item for

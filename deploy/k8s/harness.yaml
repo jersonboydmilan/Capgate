@@ -1,0 +1,84 @@
+# The harness: the authority boundary. Reachable only from the proxy (NetworkPolicy),
+# holds the signing key and token keyring (Secrets, mounted read-only), and reaches
+# only the tool service. Never mounted into the agent pod.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: harness-data
+  namespace: capgate
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: harness
+  namespace: capgate
+  labels: {app: harness}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}   # single writer of the RWO data volume (audit + state)
+  selector:
+    matchLabels: {app: harness}
+  template:
+    metadata:
+      labels: {app: harness}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 20001
+        runAsGroup: 20001
+        fsGroup: 20001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: harness
+          image: capgate-harness:local
+          imagePullPolicy: IfNotPresent
+          command: ["python3", "-m", "capgate.cli", "serve", "/config/server.yaml",
+                    "--host", "0.0.0.0", "--port", "8080", "--transport", "uvicorn"]
+          env:
+            # api "subnet": the harness believes X-Real-IP only from this range. The
+            # NetworkPolicy already restricts ingress to the proxy; this is the pod CIDR.
+            - name: CAPGATE_API_SUBNET
+              value: "10.0.0.0/8"
+          ports: [{containerPort: 8080}]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: config, mountPath: /config, readOnly: true}
+            - {name: signing, mountPath: /secrets/signing_key, subPath: signing_key, readOnly: true}
+            - {name: keyring, mountPath: /secrets/token_keyring, subPath: token_keyring, readOnly: true}
+            - {name: tool-credential, mountPath: /tool-credential/tool_credential, subPath: tool_credential, readOnly: true}
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+          readinessProbe:
+            httpGet: {path: /v1/health, port: 8080}
+            periodSeconds: 2
+      volumes:
+        - name: config
+          configMap: {name: harness-config}
+        - name: signing
+          secret: {secretName: harness-signing-key}
+        - name: keyring
+          secret: {secretName: harness-token-keyring}
+        - name: tool-credential
+          secret: {secretName: tool-credential}
+        - name: data
+          persistentVolumeClaim: {claimName: harness-data}
+        - name: tmp
+          emptyDir: {medium: Memory, sizeLimit: 16Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: harness
+  namespace: capgate
+spec:
+  selector: {app: harness}
+  ports: [{port: 8080, targetPort: 8080}]
