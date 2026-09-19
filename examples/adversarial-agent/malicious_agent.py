@@ -334,6 +334,10 @@ def isolation_probes(harness_url: str) -> dict:
     digests = dict(item.split(":", 1) for item in os.environ.get("PROBE_DIGESTS", "").split(",") if ":" in item)
     status = open("/proc/self/status").read()
     cap_eff = int(re.search(r"CapEff:\s*([0-9a-f]+)", status).group(1), 16)
+    try:
+        kernel_version = open("/proc/version").read().strip()  # gVisor reports itself here
+    except OSError as exc:
+        kernel_version = f"error:{exc.errno}"
 
     return {
         "proxy": proxy_probes(harness_url, harness_host, harness_port),
@@ -363,6 +367,7 @@ def isolation_probes(harness_url: str) -> dict:
             "visible_pids": sorted(int(d) for d in os.listdir("/proc") if d.isdigit()),
             "docker_socket": try_read("/var/run/docker.sock"),
             "write_root_fs": try_write(os.path.join(os.path.dirname(os.path.abspath(__file__)), "pwned")),
+            "kernel_version": kernel_version,
         },
         "secrets": {
             "paths": {p: try_read(p) for p in (

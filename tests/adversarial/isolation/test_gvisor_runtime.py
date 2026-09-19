@@ -61,28 +61,32 @@ def gvisor_stack(_require_runsc):
 @pytest.fixture(scope="session")
 def gvisor_attack(gvisor_stack):
     try:
-        return gvisor_stack.compose, demo.run_attack(gvisor_stack), gvisor_stack
+        return demo.run_attack(gvisor_stack)
     except Exception as exc:
         logs = gvisor_stack.compose("logs", check=False).stdout[-4000:]
         pytest.fail(f"gVisor deployment failed: {exc}\n--- compose logs ---\n{logs}")
 
 
-def test_agent_runs_under_runsc(gvisor_attack):
-    """No silent fall back to runc: the agent container's runtime is gVisor."""
-    _, _, stack = gvisor_attack
-    assert stack.service_runtime("agent") == "runsc"
+def test_agent_ran_under_gvisor(gvisor_attack):
+    """Proof from inside the guest that the sandbox was active (no silent fall back to runc).
+
+    The agent runs via `compose run --rm`, so the container is gone by the time a
+    test could inspect it from the host; instead the agent reads /proc/version,
+    which gVisor stamps with its own identity.
+    """
+    kver = gvisor_attack["agent"]["isolation"]["process"]["kernel_version"]
+    assert "gvisor" in kver.lower(), f"agent did not run under gVisor: /proc/version = {kver!r}"
 
 
 def test_every_boundary_check_still_holds_under_gvisor(gvisor_attack):
     """The full adversarial check set, re-run against the gVisor stack."""
-    _, result, _ = gvisor_attack
-    failures = {check: observed for check, observed, ok in demo.checks(result) if not ok}
+    failures = {check: observed for check, observed, ok in demo.checks(gvisor_attack) if not ok}
     assert not failures, failures
 
 
 def test_egress_allowlist_governs_the_gvisor_container(gvisor_attack):
     """netguard's iptables still confine the gVisor container (host-network passthrough)."""
-    _, result, _ = gvisor_attack
+    result = gvisor_attack
     net = result["agent"]["isolation"]["network"]
     blocked = ("refused", "timeout", "dns_failed", "error:")
     # reachable only through the harness API; the decoy on the agent's own network stays refused

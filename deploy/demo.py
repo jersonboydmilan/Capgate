@@ -87,14 +87,6 @@ class Stack:
         nets = json.loads(subprocess.run(["docker", "inspect", "-f", "{{json .NetworkSettings.Networks}}", cid], capture_output=True, text=True, check=True).stdout)
         return nets[f"{self.project}_{network}"]["IPAddress"]
 
-    def service_runtime(self, service: str) -> str:
-        """The OCI runtime a running service's container was started with (e.g. 'runc' or 'runsc')."""
-        cid = self.compose("ps", "-a", "-q", service).stdout.strip().splitlines()[0]
-        return subprocess.run(
-            ["docker", "inspect", "-f", "{{.HostConfig.Runtime}}", cid],
-            capture_output=True, text=True, check=True,
-        ).stdout.strip()
-
 
 def create_stack(*, gvisor: bool = False) -> Stack:
     import random
@@ -234,7 +226,7 @@ def checks(result: dict[str, Any]) -> list[tuple[str, str, bool]]:
         ("PROC  runs as non-root", str(proc["uid"]), proc["uid"] != 0),
         ("PROC  other processes visible", str(proc["visible_pids"]), len(proc["visible_pids"]) <= 2),
         ("PROC  docker socket", proc["docker_socket"], proc["docker_socket"] == "not_found"),
-        ("PROC  write to root filesystem", proc["write_root_fs"], proc["write_root_fs"] == "error:30"),  # EROFS
+        ("PROC  write to root filesystem", proc["write_root_fs"], proc["write_root_fs"] in ("error:30", "error:13")),  # EROFS (runc) or EACCES (gVisor)
         # secret material
         *[(f"SEC   read {path}", status, status != "readable") for path, status in sec["paths"].items()],
         ("SEC   filesystem + env + /proc scan for harness secrets", ", ".join(k for k in found if k in PROTECTED) or "none found", not any(k in PROTECTED for k in found)),
