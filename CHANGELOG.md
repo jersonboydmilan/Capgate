@@ -5,6 +5,15 @@ release yet; the sections below track the milestones on `main`.
 
 ## Unreleased
 
+### Real agent-loop example
+- `examples/agent_loop`: a provider-agnostic, model-driven tool-use loop whose
+  tools are Capgate-authorized actions from the MCP gateway. `AnthropicModel`
+  drives a real Claude model (Messages API); `ScriptedModel` replays a fixed
+  plan so the demo and its tests run offline over the same loop and gateway.
+  Denied calls return to the model as tool errors, escalated calls as an
+  approval id, and only authorized calls reach a real tool. Tests in
+  tests/integration/test_agent_loop.py.
+
 ### Multi-host state
 - Shared rate limiting: `rate_limit.shared: true` moves the per-client and
   per-principal token buckets (and the auth-failure audit sampler) into the

@@ -26,6 +26,9 @@ not enforced today.
   cluster-wide advisory lock. Plus a **shared rate limiter** (per-row atomic
   buckets) and a **shared, tamper-evident audit sink** (per-replica hash
   chains in one table). See [state.md](state.md).
+- **Real agent-loop example**: a model-driven tool-use loop (`examples/agent_loop`)
+  where Claude chooses the calls and Capgate authorizes each — runnable offline
+  or against a real Claude model.
 - **Workload identity**: tokens bindable to a workload (RFC 8705 cert
   thumbprint + SPIFFE ID), enforced over direct mTLS or a trusted proxy's
   forwarded identity, with a reference SPIFFE-aware mTLS edge (`capgate.mtlsedge`)
@@ -41,8 +44,9 @@ not enforced today.
    it has not happened yet. Every "the boundary holds" claim so far rests on
    tests the authors wrote. This is the single most important open item for
    credibility — see [SECURITY.md](../SECURITY.md) for the exact claims to break.
-3. **More real integrations.** One first-class end-to-end example with an actual
-   LLM agent loop (not a scripted client) going through the gateway.
+3. ~~A real LLM-agent-loop example~~ — done: [`examples/agent_loop`](../examples/agent_loop/README.md),
+   a provider-agnostic tool-use loop (real Claude model or a deterministic
+   offline stand-in) where every tool call is authorized by Capgate.
 
 ## Explicit non-goals
 

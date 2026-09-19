@@ -1,0 +1,15 @@
+contract_id: research-v1
+goal: Research a topic with web tools; publishing needs human approval
+max_steps: 50
+approvers: [editor]
+agents:
+  researcher:
+    capabilities:
+      web.search: allow
+      web.fetch:
+        effect: allow
+        constraints:
+          allowed_arguments: [url]
+          block_private_hosts: true
+      docs.publish: escalate
+      database.write: deny

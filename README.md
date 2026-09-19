@@ -300,6 +300,11 @@ tools are audited tool-errors; escalations return an approval id. Upstream MCP
 servers can back executor tools with their credentials held harness-side, and
 `capgate mcp-bridge` adapts stdio-only clients. See [docs/mcp.md](docs/mcp.md).
 
+A **real, model-driven agent loop** — Claude choosing tool calls, Capgate
+authorizing each one — is in [`examples/agent_loop`](examples/agent_loop/README.md)
+(`python examples/agent_loop/demo.py`; runs offline, or drives a real Claude
+model with `ANTHROPIC_API_KEY`).
+
 ## Audit trail
 
 ```bash
@@ -345,7 +350,7 @@ src/harness/      contract, capability, policy, decision, request, interceptor,
                   (uvicorn/stdlib transports), inspect/ (local UI), mcp/ (gateway,
                   upstream, stdio bridge)
 sdk/python/       capgate_client — thin HTTP client
-examples/         basic, simulation, delegation-boundary, adversarial-agent, inspect, mcp
+examples/         basic, simulation, delegation-boundary, adversarial-agent, inspect, mcp, agent_loop
 deploy/           reference isolated deployment: compose, harness/, agent/, network/, proxy/ (nginx), demo
 policies/         reusable contract templates
 docs/             architecture, contracts, capabilities, delegation, simulation, mcp, inspect, threat model
