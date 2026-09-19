@@ -77,6 +77,15 @@ def run(project: str, certs_dir: Path, thumbprint: str) -> dict:
     except RuntimeError:
         compose("--profile", "agent", "build")
     compose("up", "-d", "--wait", "mtls-edge")
+    # issue the bound token to stdout and write it into the shared certs dir on the host
+    # (avoids a container writing to a host-owned bind mount)
+    token = compose("run", "--rm", "--no-deps", "-T", "harness", "python3", "-m", "capgate.cli",
+                    "token", "issue", "--keyring", "/secrets/token_keyring", "--sub", "researcher",
+                    "--role", "agent", "--ttl", "15m", "--max-ttl", "15m",
+                    "--bind-spiffe", SPIFFE_ID, "--bind-thumbprint", thumbprint).stdout.strip().splitlines()[-1]
+    token_file = certs_dir / "token"
+    token_file.write_text(token)
+    token_file.chmod(0o444)
     proc = compose("--profile", "agent", "run", "--rm", "-T", "agent", timeout=300)
     agent = json.loads(proc.stdout.strip().splitlines()[-1])
     ledger = compose("exec", "-T", "tools", "sh", "-c", "cat /data/ledger.jsonl 2>/dev/null || true").stdout

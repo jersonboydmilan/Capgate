@@ -94,16 +94,6 @@ services:
       interval: 2s
       retries: 30
 
-  agent-token:
-    <<: [*hardening, *harness-image]
-    container_name: ${CAPGATE_PREFIX:-capgate-mtls}-agent-token
-    depends_on: {bootstrap: {condition: service_completed_successfully}}
-    command: ["python3", "-m", "capgate.cli", "token", "issue", "--keyring", "/secrets/token_keyring",
-              "--sub", "researcher", "--role", "agent", "--ttl", "15m", "--max-ttl", "15m",
-              "--bind-spiffe", "${AGENT_SPIFFE_ID:?}", "--bind-thumbprint", "${AGENT_THUMBPRINT:?}", "--out", "/certs/token"]
-    network_mode: none
-    volumes: ["harness-secrets:/secrets:ro", "${CAPGATE_CERTS_DIR:?}:/certs"]
-
   agent:
     <<: *hardening
     build:
@@ -114,7 +104,6 @@ services:
     profiles: [agent]
     depends_on:
       mtls-edge: {condition: service_healthy}
-      agent-token: {condition: service_completed_successfully}
     networks: [edge_net]
     environment:
       EDGE_HOST: mtls-edge
