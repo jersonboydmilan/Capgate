@@ -55,6 +55,19 @@ and hands the core a verified `WorkloadIdentity`:
    so a client cannot forge its own workload identity. This is the integration
    point for a SPIRE/Envoy mesh.
 
+   `capgate.mtlsedge` is the offline **reference terminator** for this: it
+   requires and verifies a client cert, strips any client-supplied identity
+   headers, and forwards the verified SPIFFE id + thumbprint. The containerised
+   demo wires it in front of the harness:
+
+   ```bash
+   python deploy/mtls/demo.py     # agent (client cert) -> mTLS edge -> harness
+   ```
+
+   which shows the bound token working only with the workload's cert, forged
+   identity headers overwritten by the edge, and a missing client cert unable
+   to connect (also run in CI, `pytest -m docker`).
+
 ## Threat covered, and not
 
 - **Covered:** a stolen bound token used from a host without the workload's

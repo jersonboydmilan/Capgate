@@ -23,26 +23,23 @@ not enforced today.
 - Property-based fuzzing of the API, policy engine and both HTTP transports.
 - **Workload identity**: tokens bindable to a workload (RFC 8705 cert
   thumbprint + SPIFFE ID), enforced over direct mTLS or a trusted proxy's
-  forwarded identity. See [workload-identity.md](workload-identity.md).
+  forwarded identity, with a reference SPIFFE-aware mTLS edge (`capgate.mtlsedge`)
+  wired into the containerised demo. See [workload-identity.md](workload-identity.md).
 
 ## Next
 
-1. **A SPIFFE-aware edge in the reference deployment.** Workload identity is
-   built and enforced; the Docker deployment still uses plain HTTP behind
-   nginx. Add an mTLS-terminating, SPIFFE-aware edge (Envoy / SPIRE) that
-   forwards the verified identity, with the isolation tests extended to it.
-2. **Multi-host state and shared rate limits.** The SQLite store is single-host;
+1. **Multi-host state and shared rate limits.** The SQLite store is single-host;
    a shared backend (e.g. Postgres/Redis) for budgets, used permits, approvals
    and revocations, so several harness replicas make consistent decisions.
-3. **Stronger isolation runtime.** A tested gVisor / Kata / Firecracker option,
+2. **Stronger isolation runtime.** A tested gVisor / Kata / Firecracker option,
    and a Kubernetes deployment (NetworkPolicy egress-only-to-harness, secrets
    not mounted into the agent pod, locked-down `securityContext`) with the same
    adversarial tests the Docker deployment has.
-4. **Outside security review.** CI and [SECURITY.md](../SECURITY.md) invite it;
+3. **Outside security review.** CI and [SECURITY.md](../SECURITY.md) invite it;
    it has not happened yet. Every "the boundary holds" claim so far rests on
    tests the authors wrote. This is the single most important open item for
    credibility — see [SECURITY.md](../SECURITY.md) for the exact claims to break.
-5. **More real integrations.** One first-class end-to-end example with an actual
+4. **More real integrations.** One first-class end-to-end example with an actual
    LLM agent loop (not a scripted client) going through the gateway.
 
 ## Explicit non-goals

@@ -1,0 +1,126 @@
+# SPIFFE-aware mTLS edge overlay.
+#
+#   python deploy/mtls/demo.py     # mints certs, builds, runs the client-cert agent, tears down
+#
+#   agent ─(edge_net, mTLS + SPIFFE client cert)─► mtls-edge ─(edge_net, http)─► harness ─(tool_net)─► tools
+#
+# The edge terminates the agent's mTLS, verifies the client cert against the CA,
+# and forwards the verified SPIFFE id + RFC 8705 thumbprint. The harness (uvicorn)
+# believes those headers only from edge_net (trusted_proxies) and enforces the
+# token's workload binding. This demonstrates the identity path; the full network/
+# process isolation lives in the base deploy/docker-compose.yml.
+
+name: capgate-mtls
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  pids_limit: 128
+  tmpfs: ["/tmp:size=16m,noexec,nosuid"]
+
+x-harness-image: &harness-image
+  build:
+    context: ../..
+    dockerfile: deploy/harness/Dockerfile
+    args: {BASE_IMAGE: "${BASE_IMAGE:-alpine:latest}"}
+  image: capgate-harness:local
+
+networks:
+  edge_net:
+    internal: true
+    ipam:
+      config: [{subnet: "${CAPGATE_EDGE_SUBNET:-172.30.240.0/24}"}]
+  tool_net:
+    internal: true
+
+volumes:
+  harness-data: {}
+  harness-secrets: {}
+  tool-credential: {}
+  tool-data: {}
+
+services:
+  bootstrap:
+    <<: [*hardening, *harness-image]
+    container_name: ${CAPGATE_PREFIX:-capgate-mtls}-bootstrap
+    command: ["python3", "-m", "capgate.cli", "bootstrap", "--secrets-dir", "/secrets", "--tool-credential", "/tool-credential/tool_credential"]
+    network_mode: none
+    volumes: ["harness-secrets:/secrets", "tool-credential:/tool-credential"]
+
+  tools:
+    <<: [*hardening, *harness-image]
+    container_name: ${CAPGATE_PREFIX:-capgate-mtls}-tools
+    depends_on: {bootstrap: {condition: service_completed_successfully}}
+    command: ["python3", "-m", "capgate.toolservice", "--host", "0.0.0.0", "--port", "9100",
+              "--credential-file", "/tool-credential/tool_credential", "--ledger", "/data/ledger.jsonl"]
+    networks: [tool_net]
+    volumes: ["tool-credential:/tool-credential:ro", "tool-data:/data"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9100/health', timeout=2)"]
+      interval: 2s
+      retries: 30
+
+  harness:
+    <<: [*hardening, *harness-image]
+    container_name: ${CAPGATE_PREFIX:-capgate-mtls}-harness
+    depends_on:
+      bootstrap: {condition: service_completed_successfully}
+      tools: {condition: service_healthy}
+    environment:
+      CAPGATE_EDGE_SUBNET: "${CAPGATE_EDGE_SUBNET:-172.30.240.0/24}"
+    command: ["python3", "-m", "capgate.cli", "serve", "/config/server.yaml"]
+    networks: [edge_net, tool_net]
+    volumes:
+      - "harness-data:/data"
+      - "harness-secrets:/secrets:ro"
+      - "tool-credential:/tool-credential:ro"
+      - "./config:/config:ro"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/v1/health', timeout=2)"]
+      interval: 2s
+      retries: 30
+
+  mtls-edge:
+    <<: [*hardening, *harness-image]
+    container_name: ${CAPGATE_PREFIX:-capgate-mtls}-edge
+    depends_on: {harness: {condition: service_healthy}}
+    command: ["python3", "-m", "capgate.mtlsedge", "--listen", "0.0.0.0:8443", "--upstream", "http://harness:8080",
+              "--cert", "/certs/edge.pem", "--key", "/certs/edge.key", "--client-ca", "/certs/ca.pem"]
+    networks: [edge_net]
+    volumes: ["${CAPGATE_CERTS_DIR:?set CAPGATE_CERTS_DIR}:/certs:ro"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1',8443),2).close()"]
+      interval: 2s
+      retries: 30
+
+  agent-token:
+    <<: [*hardening, *harness-image]
+    container_name: ${CAPGATE_PREFIX:-capgate-mtls}-agent-token
+    depends_on: {bootstrap: {condition: service_completed_successfully}}
+    command: ["python3", "-m", "capgate.cli", "token", "issue", "--keyring", "/secrets/token_keyring",
+              "--sub", "researcher", "--role", "agent", "--ttl", "15m", "--max-ttl", "15m",
+              "--bind-spiffe", "${AGENT_SPIFFE_ID:?}", "--bind-thumbprint", "${AGENT_THUMBPRINT:?}", "--out", "/certs/token"]
+    network_mode: none
+    volumes: ["harness-secrets:/secrets:ro", "${CAPGATE_CERTS_DIR:?}:/certs"]
+
+  agent:
+    <<: *hardening
+    build:
+      context: ../..
+      dockerfile: deploy/mtls/agent/Dockerfile
+      args: {BASE_IMAGE: "${BASE_IMAGE:-alpine:latest}"}
+    image: capgate-mtls-agent:local
+    profiles: [agent]
+    depends_on:
+      mtls-edge: {condition: service_healthy}
+      agent-token: {condition: service_completed_successfully}
+    networks: [edge_net]
+    environment:
+      EDGE_HOST: mtls-edge
+      EDGE_PORT: "8443"
+      AGENT_TOKEN_FILE: /run/agent/token
+      AGENT_CERT: /run/agent/agent.pem
+      AGENT_KEY: /run/agent/agent.key
+      CA_CERT: /run/agent/ca.pem
+    volumes: ["${CAPGATE_CERTS_DIR:?}:/run/agent:ro"]

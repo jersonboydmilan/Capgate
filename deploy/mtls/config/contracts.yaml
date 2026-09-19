@@ -1,0 +1,8 @@
+contract_id: research-v1
+goal: Research using web search; the agent is identified by a SPIFFE workload certificate
+max_steps: 1000
+agents:
+  researcher:
+    capabilities:
+      web.search: allow
+      database.write: deny

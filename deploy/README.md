@@ -45,6 +45,18 @@ Expected: every bypass attempt fails, with a connection error (the network) or
 a 401/403/404 (the harness). `logs harness` shows one `execution … outcome=succeeded`
 line (`web.search`), and the ledger holds exactly that one side effect.
 
+## SPIFFE mTLS edge (overlay)
+
+Workload identity over mutual-TLS, end to end in containers — an agent with a
+SPIFFE client cert through an mTLS edge that forwards the verified identity to
+the harness:
+
+```bash
+python deploy/mtls/demo.py
+```
+
+See [mtls/README.md](mtls/README.md).
+
 ## Run it as tests
 
 ```bash

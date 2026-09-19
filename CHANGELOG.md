@@ -14,6 +14,11 @@ release yet; the sections below track the milestones on `main`.
   unchanged. `capgate token issue --bind-cert/--bind-spiffe/--bind-thumbprint`.
   Runtime stays dependency-free; the `mtls` extra adds `cryptography` for the
   cert-reading tooling only. See docs/workload-identity.md.
+- Reference SPIFFE-aware mTLS edge (`capgate.mtlsedge`): terminates the
+  agent's mTLS, verifies the client cert, strips client-supplied identity
+  headers, and forwards the verified SPIFFE id + thumbprint to the harness.
+  Wired into a containerised demo (`deploy/mtls/`, `python deploy/mtls/demo.py`)
+  and covered by `pytest -m docker`.
 
 ### Boundary and transport
 - Production HTTP transport: the API runs under uvicorn/h11 behind an nginx edge
