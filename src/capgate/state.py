@@ -6,10 +6,16 @@
   * undelivered inter-agent messages
   * revoked credential ids
 
-`MemoryStateStore` is the default for tests and simulation. `SQLiteStateStore`
-persists to a file; its `transaction()` takes a database write lock, so several
-harness processes on one host sharing the file make consistent budget and
-replay decisions.
+Pick a backend with `open_state_store(url)`:
+
+  * `memory://`                         in-process (tests, simulation)
+  * `sqlite:///path/state.db` or a path one host, many processes (a file write lock)
+  * `postgresql://user:pw@host/db`      many hosts (a shared, transactional backend)
+
+All three honour the same contract: `transaction()` makes the interceptor's
+read-evaluate-increment atomic, and `claim_grant` is single-use. The Postgres
+store serializes state transactions with a cluster-wide advisory lock, so
+several harness replicas make consistent budget, permit and approval decisions.
 """
 
 from __future__ import annotations
@@ -222,3 +228,161 @@ class SQLiteStateStore:
             db = self._connect()
             db.execute("DELETE FROM grants WHERE expires_at < ?", (now - 3600,))
             db.execute("DELETE FROM revoked WHERE expires_at < ?", (now - 3600,))
+
+
+class PostgresStateStore:
+    """Multi-host authority state on PostgreSQL.
+
+    A cluster-wide advisory lock (`pg_advisory_xact_lock`) held for the duration
+    of each `transaction()` serializes read-evaluate-increment and grant claims
+    across every harness replica, so budgets cannot be overspent and a permit
+    cannot be used twice, whichever host serves the request. This trades
+    throughput for correctness — the simplest scheme that is obviously right;
+    finer per-contract locking is a later optimisation.
+
+    Requires `psycopg` (the `postgres` extra). Connections are per-thread.
+    """
+
+    _LOCK_KEY = 0x00C0_FFEE_CA96A7E5  # constant advisory-lock key shared by all replicas
+
+    _SCHEMA = (
+        "CREATE TABLE IF NOT EXISTS steps     (contract_id TEXT PRIMARY KEY, n BIGINT NOT NULL);",
+        "CREATE TABLE IF NOT EXISTS calls     (agent_id TEXT, action TEXT, n BIGINT NOT NULL, PRIMARY KEY (agent_id, action));",
+        "CREATE TABLE IF NOT EXISTS grants    (decision_id TEXT PRIMARY KEY, expires_at DOUBLE PRECISION NOT NULL);",
+        "CREATE TABLE IF NOT EXISTS approvals (approval_id TEXT PRIMARY KEY, status TEXT NOT NULL, record JSONB NOT NULL);",
+        "CREATE TABLE IF NOT EXISTS messages  (seq BIGSERIAL PRIMARY KEY, recipient TEXT NOT NULL, message JSONB NOT NULL);",
+        "CREATE TABLE IF NOT EXISTS revoked   (token_id TEXT PRIMARY KEY, expires_at DOUBLE PRECISION NOT NULL);",
+        "CREATE INDEX IF NOT EXISTS approvals_status ON approvals(status);",
+        "CREATE INDEX IF NOT EXISTS messages_recipient ON messages(recipient, seq);",
+    )
+
+    def __init__(self, dsn: str) -> None:
+        import psycopg
+
+        self._psycopg = psycopg
+        self._dsn = dsn
+        self._local = threading.local()
+        with self._connect() as conn, conn.transaction():
+            for stmt in self._SCHEMA:
+                conn.execute(stmt)
+
+    def _connect(self):
+        conn = getattr(self._local, "conn", None)
+        if conn is None or conn.closed:
+            conn = self._psycopg.connect(self._dsn, autocommit=True)
+            self._local.conn = conn
+            self._local.depth = 0
+        return conn
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        conn = self._connect()
+        if self._local.depth == 0:
+            conn.execute("BEGIN")
+            conn.execute("SELECT pg_advisory_xact_lock(%s)", (self._LOCK_KEY,))  # released at COMMIT/ROLLBACK
+        self._local.depth += 1
+        try:
+            yield
+        except BaseException:
+            self._local.depth -= 1
+            if self._local.depth == 0:
+                conn.execute("ROLLBACK")
+            raise
+        else:
+            self._local.depth -= 1
+            if self._local.depth == 0:
+                conn.execute("COMMIT")
+
+    def _one(self, sql: str, *args: Any) -> Any:
+        row = self._connect().execute(sql, args).fetchone()
+        return row[0] if row else None
+
+    def steps(self, contract_id: str) -> int:
+        return self._one("SELECT n FROM steps WHERE contract_id=%s", contract_id) or 0
+
+    def add_step(self, contract_id: str) -> None:
+        with self.transaction():
+            self._connect().execute(
+                "INSERT INTO steps(contract_id, n) VALUES(%s, 1) ON CONFLICT(contract_id) DO UPDATE SET n = steps.n + 1",
+                (contract_id,),
+            )
+
+    def calls(self, agent_id: str, action: str) -> int:
+        return self._one("SELECT n FROM calls WHERE agent_id=%s AND action=%s", agent_id, action) or 0
+
+    def add_call(self, agent_id: str, action: str) -> None:
+        with self.transaction():
+            self._connect().execute(
+                "INSERT INTO calls(agent_id, action, n) VALUES(%s, %s, 1) "
+                "ON CONFLICT(agent_id, action) DO UPDATE SET n = calls.n + 1",
+                (agent_id, action),
+            )
+
+    def claim_grant(self, decision_id: str, expires_at: float) -> bool:
+        with self.transaction():
+            cur = self._connect().execute(
+                "INSERT INTO grants(decision_id, expires_at) VALUES(%s, %s) ON CONFLICT(decision_id) DO NOTHING",
+                (decision_id, expires_at),
+            )
+            return cur.rowcount == 1  # first insert wins; a replay conflicts and inserts nothing
+
+    def put_approval(self, approval_id: str, record: dict[str, Any]) -> None:
+        with self.transaction():
+            self._connect().execute(
+                "INSERT INTO approvals(approval_id, status, record) VALUES(%s, %s, %s) "
+                "ON CONFLICT(approval_id) DO UPDATE SET status=excluded.status, record=excluded.record",
+                (approval_id, record["status"], self._psycopg.types.json.Jsonb(record)),
+            )
+
+    def get_approval(self, approval_id: str) -> dict[str, Any] | None:
+        return self._one("SELECT record FROM approvals WHERE approval_id=%s", approval_id)
+
+    def pending_approvals(self) -> list[dict[str, Any]]:
+        rows = self._connect().execute("SELECT record FROM approvals WHERE status='pending' ORDER BY approval_id").fetchall()
+        return [r[0] for r in rows]
+
+    def push_message(self, recipient: str, message: dict[str, Any]) -> None:
+        with self.transaction():
+            self._connect().execute("INSERT INTO messages(recipient, message) VALUES(%s, %s)",
+                                    (recipient, self._psycopg.types.json.Jsonb(message)))
+
+    def drain_messages(self, recipient: str) -> list[dict[str, Any]]:
+        with self.transaction():
+            rows = self._connect().execute(
+                "DELETE FROM messages WHERE recipient=%s RETURNING message", (recipient,)
+            ).fetchall()
+            return [r[0] for r in rows]
+
+    def revoke(self, token_id: str, expires_at: float) -> None:
+        with self.transaction():
+            self._connect().execute(
+                "INSERT INTO revoked(token_id, expires_at) VALUES(%s, %s) ON CONFLICT(token_id) DO NOTHING",
+                (token_id, expires_at),
+            )
+
+    def is_revoked(self, token_id: str) -> bool:
+        return self._one("SELECT 1 FROM revoked WHERE token_id=%s", token_id) is not None
+
+    def prune(self, now: float) -> None:
+        with self.transaction():
+            conn = self._connect()
+            conn.execute("DELETE FROM grants WHERE expires_at < %s", (now - 3600,))
+            conn.execute("DELETE FROM revoked WHERE expires_at < %s", (now - 3600,))
+
+
+def open_state_store(url: str | None):
+    """Build a StateStore from a URL (or a bare path / None).
+
+        None or "memory://"            -> MemoryStateStore
+        "sqlite:///abs/path" or a path -> SQLiteStateStore
+        "postgresql://…" / "postgres://…" -> PostgresStateStore
+    """
+    if url is None or url == "memory://" or url == "memory:":
+        return MemoryStateStore()
+    if url.startswith(("postgresql://", "postgres://")):
+        return PostgresStateStore(url)
+    if url.startswith("sqlite://"):
+        rest = url[len("sqlite://"):]
+        path = rest[1:] if rest.startswith("/") and rest[1:2] == "/" else rest.lstrip("/")
+        return SQLiteStateStore(path or ":memory:")
+    return SQLiteStateStore(url)  # a bare filesystem path

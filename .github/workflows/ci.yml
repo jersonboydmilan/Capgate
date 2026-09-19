@@ -34,8 +34,8 @@ jobs:
       - name: Test suite (${{ matrix.transport }} transport)
         run: uv run --no-sync pytest -q
 
-  isolation:
-    name: docker isolation boundary
+  docker:
+    name: docker (isolation, mTLS edge, multi-host state)
     # Heavy (builds images, drives containers with iptables). On demand and nightly, not on every push.
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
@@ -50,5 +50,5 @@ jobs:
           uv pip install -e ".[dev]"
       - name: Fetch offline build artifacts
         run: uv run --no-sync python deploy/fetch_artifacts.py
-      - name: Attack the containerised deployment from inside the agent sandbox
-        run: uv run --no-sync pytest -q -m docker tests/adversarial/isolation
+      - name: Containerised isolation, mTLS edge and multi-host state
+        run: uv run --no-sync pytest -q -m docker

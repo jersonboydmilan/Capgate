@@ -21,6 +21,9 @@ not enforced today.
   processes on one host.
 - MCP gateway (`/mcp`) and upstream MCP tools, exercised with the official SDK.
 - Property-based fuzzing of the API, policy engine and both HTTP transports.
+- **Multi-host state** on PostgreSQL: budgets, used permits, approvals,
+  messages and revocations shared across replicas, serialized by a
+  cluster-wide advisory lock. See [state.md](state.md).
 - **Workload identity**: tokens bindable to a workload (RFC 8705 cert
   thumbprint + SPIFFE ID), enforced over direct mTLS or a trusted proxy's
   forwarded identity, with a reference SPIFFE-aware mTLS edge (`capgate.mtlsedge`)
@@ -28,9 +31,9 @@ not enforced today.
 
 ## Next
 
-1. **Multi-host state and shared rate limits.** The SQLite store is single-host;
-   a shared backend (e.g. Postgres/Redis) for budgets, used permits, approvals
-   and revocations, so several harness replicas make consistent decisions.
+1. **Shared rate limits and audit sink.** Multi-host *state* is done (Postgres);
+   the token-bucket rate limiter and the audit trail are still per replica.
+   Add a shared limiter for a hard cluster-wide cap and a common audit sink.
 2. **Stronger isolation runtime.** A tested gVisor / Kata / Firecracker option,
    and a Kubernetes deployment (NetworkPolicy egress-only-to-harness, secrets
    not mounted into the agent pod, locked-down `securityContext`) with the same

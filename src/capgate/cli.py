@@ -175,7 +175,7 @@ def _audit(args) -> int:
 
 def _serve(args) -> int:
     from .server import HarnessServer
-    from .state import SQLiteStateStore
+    from .state import open_state_store
     from .tools import build_tools
 
     path = Path(args.config)
@@ -192,7 +192,7 @@ def _serve(args) -> int:
         tools=build_tools(cfg.get("tools"), base=path.parent, mcp_servers=cfg.get("mcp_servers")),
         audit=AuditLog(path.parent / audit_path if audit_path else None, fsync=True, echo=echo),
         signing_key=signing_key,
-        state=SQLiteStateStore(path.parent / cfg["state"]) if cfg.get("state") else None,
+        state=open_state_store(_state_url(cfg, path.parent)),
     )
     identity = cfg.get("identity") or {}
     if not identity.get("keyring_file"):
@@ -225,6 +225,23 @@ def _serve(args) -> int:
     except KeyboardInterrupt:
         pass
     return 0
+
+
+def _state_url(cfg: dict, base: Path) -> str | None:
+    """`state:` may be a URL (postgresql://…, sqlite://…, memory://) or a path;
+    `state_env` names an env var holding the URL (e.g. a Postgres DSN secret).
+    A bare relative path is resolved against the config directory."""
+    import os
+
+    url = cfg.get("state")
+    env = cfg.get("state_env")
+    if env and os.environ.get(env):
+        url = os.environ[env]
+    if url is None:
+        return None
+    if isinstance(url, str) and "://" not in url and not url.startswith("/"):
+        return str(base / url)  # relative filesystem path for sqlite
+    return url
 
 
 def _trusted_proxies(cfg: dict) -> list[str] | None:
@@ -325,7 +342,7 @@ def _cert_der(path: str) -> bytes:
 
 
 def _token(args) -> int:
-    from .state import SQLiteStateStore
+    from .state import open_state_store
 
     path = Path(args.keyring)
     if args.token_command == "keygen":
@@ -355,7 +372,7 @@ def _token(args) -> int:
         else:
             print(token)
     elif args.token_command == "revoke":
-        authority = TokenAuthority(path, state=SQLiteStateStore(args.state))
+        authority = TokenAuthority(path, state=open_state_store(args.state))
         claims = authority.revoke(args.token)
         print(f"revoked {claims.jti} ({claims.role} {claims.sub}) until {claims.exp}")
     return 0

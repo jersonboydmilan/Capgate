@@ -5,6 +5,19 @@ release yet; the sections below track the milestones on `main`.
 
 ## Unreleased
 
+### Multi-host state
+- `PostgresStateStore` and `open_state_store(url)`: choose the state backend
+  by URL — `memory://`, `sqlite://`/path, or `postgresql://` for many
+  replicas sharing budgets, used permits, approvals, messages and
+  revocations, serialized by a cluster-wide advisory lock. `serve` accepts
+  `state:` (URL or path) and `state_env:` (DSN from an env var). `postgres`
+  extra adds psycopg. Docker test proves two replicas share one budget and a
+  permit is single-use across replicas. See docs/state.md.
+- Fix: approving an escalation now re-reads the **current** budget and runs
+  the take + re-evaluate + record in one transaction, so an approval can no
+  longer exceed a budget spent (possibly on another replica) after the
+  escalation. Regression tests in tests/adversarial/escalation.
+
 ### Workload identity (mTLS / SPIFFE)
 - Tokens can be bound to the calling workload: an RFC 8705 `cnf.x5t#S256`
   certificate thumbprint and/or a SPIFFE `wl` id, verified against the mTLS

@@ -121,13 +121,13 @@ compromised agent.
   so content filtering is unnecessary for authorization. It is not a defence
   against a recipient being manipulated into *authorized* but unwise actions;
   narrow the recipient's contract for that.
-- **State is per host.** With `state: state.db` (SQLite), budgets, call limits,
-  used grants, pending/decided approvals, undelivered messages and revoked
-  credentials survive restarts, and harness processes on the same host sharing
-  the file make consistent decisions (read–evaluate–increment runs under a
-  database write lock). Without `state:`, state is in memory. There is no
-  multi-host replication. Grants survive a restart only with a stable
-  `signing_key_file`.
+- **State backends.** `memory://` (one process), `sqlite://` (one host, many
+  processes, file write lock), or `postgresql://` (many hosts, serialized by a
+  cluster-wide advisory lock). Budgets, used permits, approvals, messages and
+  revocations survive restarts and, on Postgres, are consistent across
+  replicas. Grants survive a restart / cross a replica only with a stable
+  signing key. **Rate limits and the audit trail remain per replica** (see
+  [state.md](state.md)). See also the multi-host tests.
 - **Rate limits are per process and in memory.** Per-client and per-principal
   token buckets, plus sampled auditing of failed authentication, bound request
   floods and audit growth for one harness process. Several replicas each apply

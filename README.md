@@ -32,7 +32,7 @@ unable to reach a tool.
 - [The contract](#the-contract) · [The API](#the-api) · [Delegation](#delegation-does-not-transfer-authority)
 - [What is actually enforced](#what-is-actually-enforced) · [MCP](#mcp-agents-call-in-through-the-boundary)
 - [Audit trail](#audit-trail) · [Tests](#tests) · [Status](#status)
-- Design: [DESIGN.md](DESIGN.md) (the five invariants) · [Workload identity](docs/workload-identity.md) · [docs/threat-model.md](docs/threat-model.md) · [Roadmap](docs/roadmap.md) · [SECURITY.md](SECURITY.md)
+- Design: [DESIGN.md](DESIGN.md) (the five invariants) · [Workload identity](docs/workload-identity.md) · [State & multi-host](docs/state.md) · [docs/threat-model.md](docs/threat-model.md) · [Roadmap](docs/roadmap.md) · [SECURITY.md](SECURITY.md)
 
 ## The boundary, under attack
 
@@ -361,7 +361,8 @@ execution, audit — work end to end and are tested together
 the boundary holds against every tested bypass route, enforced by the network
 and process boundary, credential custody, and an nginx edge in front of uvicorn;
 a real MCP client and a real upstream MCP server run through it in the test
-suite. The API and both transports are fuzzed.
+suite. The API and both transports are fuzzed. State runs in-process, on SQLite
+(one host), or on PostgreSQL (many replicas, [docs/state.md](docs/state.md)).
 
 Still not production-grade, on purpose. Open items, in priority order:
 workload identity (mTLS / SPIFFE) so a token is bound to the calling workload;

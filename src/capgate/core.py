@@ -314,10 +314,14 @@ class Harness:
                 self.state.put_approval(approval_id, record)
 
     def approve(self, approval_id: str, approver: str, note: str = "") -> AuthorizationResult | DelegationResult:
-        pending = self._take_approval(approval_id, approver, "approve")
-        request = pending.decision.request
-        with self._lock:
-            evaluation = evaluate(request, self._interceptor.contracts, self._interceptor.bindings, pending.usage, self._clock())
+        # Take, re-evaluate and record in ONE transaction so approval consumes budget
+        # atomically against the CURRENT counters (not the snapshot from escalation time,
+        # which another host may have moved on from) and the take cannot be lost on failure.
+        with self._lock, self.state.transaction():
+            pending = self._take_approval(approval_id, approver, "approve")
+            request = pending.decision.request
+            usage = self._interceptor.usage_for(request)  # current usage, re-read now
+            evaluation = evaluate(request, self._interceptor.contracts, self._interceptor.bindings, usage, self._clock())
             if evaluation.decision is DecisionType.ESCALATE:
                 evaluation = PolicyEvaluation(
                     DecisionType.ALLOW, ReasonCode.APPROVED_BY_HUMAN, f"approved by {approver}" + (f": {note}" if note else ""),
@@ -341,7 +345,7 @@ class Harness:
             note=note,
         )
         self.annotate_approval(approval_id, verdict="granted" if decision.allowed else "superseded", resulting_decision_id=decision.decision_id)
-        result = self._result_for(decision, pending.usage)
+        result = self._result_for(decision, usage)
         if request.action == DELEGATE_ACTION and result.allowed:
             args = request.arguments_copy()
             req = DelegationRequest(request.agent_id, args["to"], args["action"], args.get("arguments") or {})
