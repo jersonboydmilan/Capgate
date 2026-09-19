@@ -147,7 +147,8 @@ def test_stolen_bound_token_without_the_key_is_useless(mtls):
     a_cert, a_key, a_der = mtls["A"]
     token = a.issue("researcher", "agent", 300, workload=WorkloadBinding(spiffe_id=SPIFFE_A, thumbprint=thumbprint_from_der(a_der)))
     # attacker presents no client cert; the server requires one, so the handshake itself fails
-    with pytest.raises(ssl.SSLError):
+    # (surfaces as SSLError or a connection reset depending on platform/OpenSSL)
+    with pytest.raises(OSError):
         call(mtls["server"], mtls["ca"], None, token)
     assert mtls["spy"].calls == []
 

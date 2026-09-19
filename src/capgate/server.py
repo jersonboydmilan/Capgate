@@ -88,6 +88,8 @@ class HarnessServer:
             self.server: Any = ThreadingHTTPServer((host, port), _make_handler(self.api))
             if tls is not None:
                 self.server.socket = tls.server_context().wrap_socket(self.server.socket, server_side=True)
+                # a client that aborts the mTLS handshake (e.g. no cert) is not a server error: don't dump a traceback
+                self.server.handle_error = lambda request, client_address: None
             self.address = self.server.server_address[:2]
         else:
             import uvicorn
