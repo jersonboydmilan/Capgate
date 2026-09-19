@@ -74,7 +74,12 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/gvisor.list > /dev/null
           sudo apt-get update
           sudo apt-get install -y runsc
-          sudo runsc install
+          # Host-network passthrough: gVisor keeps its syscall/kernel sandbox (the Sentry
+          # still intercepts syscalls) while networking uses the container's real netns
+          # stack -- so netguard's iptables egress allowlist and Docker's embedded DNS both
+          # apply exactly as on runc. Network isolation stays with netguard; gVisor adds
+          # kernel isolation. See deploy/gvisor/README.md.
+          sudo runsc install -- --network=host
           sudo systemctl reload docker
           docker info --format '{{json .Runtimes}}' | grep -q runsc
       - name: Create the environment

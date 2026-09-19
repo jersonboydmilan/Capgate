@@ -9,8 +9,9 @@ the plain-runc suite cannot:
      would make "gVisor tested" a false claim; and
   2. every boundary check that holds on runc still holds on gVisor — in
      particular, netguard's iptables egress allowlist still governs the gVisor
-     container, whose own network stack joins netguard's (runc-owned) network
-     namespace.
+     container, which joins netguard's (runc-owned) network namespace with
+     gVisor host-network passthrough (kernel isolation from gVisor; network
+     isolation from netguard).
 
 Skips unless both Docker and the runsc runtime are available. Opt in with
 ``pytest -m gvisor``; it is also marked ``docker`` so the default suite
@@ -80,7 +81,7 @@ def test_every_boundary_check_still_holds_under_gvisor(gvisor_attack):
 
 
 def test_egress_allowlist_governs_the_gvisor_container(gvisor_attack):
-    """The one genuinely new question: netguard's iptables still confine gVisor's netstack."""
+    """netguard's iptables still confine the gVisor container (host-network passthrough)."""
     _, result, _ = gvisor_attack
     net = result["agent"]["isolation"]["network"]
     blocked = ("refused", "timeout", "dns_failed", "error:")

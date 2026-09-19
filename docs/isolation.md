@@ -45,6 +45,12 @@ re-implementation of the Linux ABI, not the host kernel; the host-kernel surface
 exposed to the agent shrinks from all of Linux to the narrow set gVisor makes for
 itself.
 
+runsc is registered with host-network passthrough (`--network=host`): gVisor
+keeps its syscall sandbox while the network path uses the container's real
+network namespace — the one netguard owns — so the iptables egress allowlist and
+Docker's embedded DNS apply exactly as on runc. The layer gVisor adds is **kernel
+isolation**; **network isolation stays with netguard**.
+
 ```bash
 python deploy/demo.py --gvisor        # build, attack under gVisor, report
 ```
@@ -59,11 +65,11 @@ The gVisor variant runs the **same** adversarial suite, plus
 
 - the agent container's OCI runtime really is `runsc` — so a silent fall back to
   runc can never pass as "gVisor tested"; and
-- netguard's egress allowlist still governs the gVisor container: running under
-  gVisor's own network stack while joined to netguard's (runc-owned) network
-  namespace, the agent still reaches only `proxy:8080` — internet, cloud
-  metadata, the real tool, the decoy tool on its own network, and other harness
-  ports all stay blocked.
+- netguard's egress allowlist still governs the gVisor container: joined to
+  netguard's (runc-owned) network namespace with host-network passthrough, the
+  agent still reaches only `proxy:8080` — internet, cloud metadata, the real
+  tool, the decoy tool on its own network, and other harness ports all stay
+  blocked.
 
 The `gvisor` CI job (on demand and nightly) installs `runsc` and runs
 `pytest -m gvisor` on a Linux runner.

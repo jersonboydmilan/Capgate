@@ -14,6 +14,17 @@ container's syscalls, so the agent talks to gVisor's re-implementation of the
 Linux ABI instead of the host kernel. The host-kernel syscall surface exposed to
 the agent shrinks from "all of Linux" to the narrow set gVisor itself makes.
 
+**Networking: host-network passthrough.** runsc is registered with
+`--network=host`, so gVisor keeps its syscall/kernel sandbox (the Sentry still
+intercepts every syscall) while the network path uses the container's real
+network namespace — the one netguard owns. netguard's iptables egress allowlist
+and Docker's embedded DNS therefore apply to the gVisor container exactly as they
+do on runc. The isolation gVisor adds here is **kernel isolation**; **network
+isolation stays with netguard**. (gVisor's default user-space netstack does not
+proxy Docker's embedded resolver at 127.0.0.11 from a shared netns, so
+passthrough is the correct mode for this topology; it does not weaken the
+firewall, which lives in the netns, not in gVisor.)
+
 ## What still holds (and is tested)
 
 Nothing else about the deployment changes, so the whole adversarial suite runs
@@ -47,8 +58,8 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gviso
   | sudo tee /etc/apt/sources.list.d/gvisor.list > /dev/null
 sudo apt-get update && sudo apt-get install -y runsc
 
-# Register it with the Docker daemon.
-sudo runsc install
+# Register it with the Docker daemon, with host-network passthrough (see below).
+sudo runsc install -- --network=host
 sudo systemctl reload docker   # or: sudo service docker restart
 
 # Confirm.

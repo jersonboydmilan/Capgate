@@ -33,6 +33,15 @@
 #     gVisor; the adversarial tests assert the allowlist still governs the
 #     gVisor container's egress (see tests/adversarial/isolation/test_gvisor_runtime.py).
 #
+# runsc network mode: register runsc with host-network passthrough
+# (`runsc install -- --network=host`). gVisor keeps its syscall/kernel sandbox
+# (the Sentry still intercepts every syscall) while networking uses the
+# container's real netns stack, so netguard's iptables allowlist and Docker's
+# embedded DNS both apply exactly as on runc. The isolation gVisor adds here is
+# kernel isolation; network isolation stays with netguard. (gVisor's default
+# user-space netstack does not proxy Docker's embedded DNS at 127.0.0.11 from a
+# shared netns, which is why passthrough is the right mode for this topology.)
+#
 # For defense-in-depth you may also add `runtime: runsc` to `tools` (and even
 # `harness`); they do not share a network namespace, so there is no netguard
 # interaction to worry about. It is left off here to keep the claim precise:

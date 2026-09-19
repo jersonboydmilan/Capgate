@@ -414,6 +414,8 @@ def proxy_probes(harness_url: str, host: str, port: int) -> dict:
         out["spoofed_client_ip"] = "accepted"
     except urllib.error.HTTPError as exc:
         out["spoofed_client_ip"] = exc.code
+    except OSError:  # URLError (incl. DNS failure) subclasses OSError: record, never crash the probe
+        out["spoofed_client_ip"] = 0
     out["own_address"] = _own_address(host, port)
     return out
 
