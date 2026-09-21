@@ -80,9 +80,35 @@ kubeconform -strict -summary /tmp/capgate-k8s.yaml   # schema validation
 python deploy/k8s/validate.py /tmp/capgate-k8s.yaml  # invariant checks
 ```
 
-The `k8s` CI job runs exactly this on every dispatch/nightly. A **live**
-end-to-end run (kind + a NetworkPolicy-enforcing CNI + gVisor, running the agent
-Job and asserting the same ground truth) is the next step; the manifests and
-`validate.py` are the foundation for it. Until then, the runtime adversarial
-guarantee is demonstrated by the gVisor Docker job (`pytest -m gvisor`), and the
-Kubernetes manifests are schema- and invariant-checked here.
+The `k8s` CI job runs exactly this on every push.
+
+## Live end-to-end test
+
+`deploy/k8s-e2e/` runs the stack on a real cluster and attacks it. The `k8s-e2e`
+CI job (on demand and nightly):
+
+1. creates a **kind** cluster with the default CNI disabled and installs
+   **Calico**, which actually *enforces* NetworkPolicy egress (kindnet does not);
+2. builds the images and loads them into kind;
+3. deploys this base via the `deploy/k8s-e2e` overlay (agent Job suspended),
+   bootstraps the Secrets, and waits for harness/tools/proxy;
+4. unsuspends the agent Job — the real compromised agent from the Docker demo —
+   and, once it finishes, asserts (`deploy/k8s-e2e/assert.py`) on its
+   observations plus ground truth (the tool ledger, the harness audit) that:
+   the agent reached **only** the proxy (Calico blocked the harness, the tool
+   service, the internet and cloud metadata), could not read any harness secret,
+   ran unprivileged, and produced exactly one authorized side effect.
+
+This is the live equivalent of `validate.py`'s static checks. The overlay drops
+the gVisor `runtimeClassName` because kind is not a gVisor node — kernel
+isolation is proven separately by the Docker `gvisor` job; on a real cluster use
+a gVisor node pool (e.g. GKE Sandbox), for which the base already carries the
+`RuntimeClass` and the agent's `runtimeClassName: gvisor`.
+
+```bash
+kind create cluster --config deploy/k8s-e2e/kind.yaml
+# install Calico, build+load images (see .github/workflows/ci.yml), then:
+kubectl kustomize --load-restrictor LoadRestrictionsNone deploy/k8s-e2e | kubectl apply -f -
+sh deploy/k8s/bootstrap.sh capgate
+kubectl -n capgate patch job/agent --type=merge -p '{"spec":{"suspend":false}}'
+```

@@ -5,6 +5,20 @@ release yet; the sections below track the milestones on `main`.
 
 ## Unreleased
 
+### Live Kubernetes end-to-end test
+- `deploy/k8s-e2e/`: a kustomize overlay (sibling of the base) and a `k8s-e2e` CI
+  job that stand up a real **kind** cluster with **Calico** — a CNI that enforces
+  NetworkPolicy egress — deploy the stack, and run the actual compromised-agent
+  `Job` from the Docker demo. `assert.py` then checks, on the agent's own
+  observations plus ground truth (the tool ledger, the harness audit), that
+  Calico blocked the agent from everything but the proxy, that it read no harness
+  secret, ran unprivileged, and produced exactly one authorized side effect — the
+  live equivalent of `validate.py`'s static checks.
+- The overlay drops the gVisor `runtimeClassName` (kind is not a gVisor node);
+  kernel isolation stays proven by the Docker `gvisor` job, and on real clusters
+  a gVisor node pool (e.g. GKE Sandbox) carries it. Job starts suspended so CI
+  can bootstrap Secrets before the agent runs.
+
 ### Kubernetes deployment
 - `deploy/k8s/`: a kustomize base mirroring the Docker topology — default-deny
   `NetworkPolicy` (egress `agent → proxy → harness → tools`), `RuntimeClass:

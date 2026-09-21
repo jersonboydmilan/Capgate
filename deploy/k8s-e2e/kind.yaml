@@ -1,0 +1,9 @@
+# kind cluster for the live e2e: default CNI disabled so Calico can enforce
+# NetworkPolicy egress (kindnet does not).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  disableDefaultCNI: true
+  podSubnet: "192.168.0.0/16"   # Calico's default pool
+nodes:
+  - role: control-plane

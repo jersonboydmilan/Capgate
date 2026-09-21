@@ -45,18 +45,22 @@ not enforced today.
   `securityContext`, and namespace Pod Security `restricted`. The `k8s` CI job
   schema-checks the manifests (`kubeconform`) and asserts the agent-isolation
   invariants (`deploy/k8s/validate.py`) on every push.
+- **Live Kubernetes end-to-end test**: `deploy/k8s-e2e/` + the `k8s-e2e` CI job
+  spin up a kind cluster with **Calico** (which enforces NetworkPolicy egress),
+  deploy the stack, and run the real compromised-agent `Job` — asserting live
+  that Calico blocks the agent from everything but the proxy, that it reads no
+  harness secret, runs unprivileged, and produces exactly one authorized side
+  effect. kind is not a gVisor node, so the overlay drops the gVisor
+  `runtimeClassName` (kernel isolation stays proven by the Docker `gvisor` job;
+  on real clusters use a gVisor node pool, e.g. GKE Sandbox).
 
 ## Next
 
-1. **Live Kubernetes end-to-end test.** The manifests and static invariant checks
-   are done (above); what remains is a live run — kind (or equivalent) with a
-   NetworkPolicy-enforcing CNI and gVisor, running the agent `Job` and asserting
-   the same ground truth the Docker adversarial job does.
-2. **Outside security review.** CI and [SECURITY.md](../SECURITY.md) invite it;
+1. **Outside security review.** CI and [SECURITY.md](../SECURITY.md) invite it;
    it has not happened yet. Every "the boundary holds" claim so far rests on
    tests the authors wrote. This is the single most important open item for
    credibility — see [SECURITY.md](../SECURITY.md) for the exact claims to break.
-3. ~~A real LLM-agent-loop example~~ — done: [`examples/agent_loop`](../examples/agent_loop/README.md),
+2. ~~A real LLM-agent-loop example~~ — done: [`examples/agent_loop`](../examples/agent_loop/README.md),
    a provider-agnostic tool-use loop (real Claude model or a deterministic
    offline stand-in) where every tool call is authorized by Capgate.
 

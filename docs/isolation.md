@@ -105,8 +105,12 @@ under gVisor, mounts no harness secret, is fully unprivileged, and its egress is
 restricted to the proxy. The `k8s` CI job runs `kubeconform` (schema) and that
 validator on every push. See [`deploy/k8s/README.md`](../deploy/k8s/README.md).
 
-Still open: a **live** end-to-end run (kind + a NetworkPolicy-enforcing CNI +
-gVisor, running the agent `Job` and asserting the same ground truth the Docker
-job does). The manifests and the invariant checker are the foundation for it;
-until it lands, the runtime adversarial guarantee is carried by the gVisor Docker
-job (`pytest -m gvisor`).
+A **live** end-to-end run backs the static checks: `deploy/k8s-e2e/` and the
+`k8s-e2e` CI job stand up a kind cluster with **Calico** (which enforces
+NetworkPolicy egress), deploy the stack, and run the real compromised-agent
+`Job`, asserting live that the agent reaches only the proxy, reads no harness
+secret, runs unprivileged, and produces exactly one authorized side effect. kind
+is not a gVisor node, so the overlay drops the gVisor `runtimeClassName`; kernel
+isolation stays proven by the Docker `gvisor` job, and on a real cluster you use
+a gVisor node pool (e.g. GKE Sandbox), for which the base carries the
+`RuntimeClass` and the agent's `runtimeClassName: gvisor`.

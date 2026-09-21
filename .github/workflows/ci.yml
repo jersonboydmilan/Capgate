@@ -62,6 +62,83 @@ jobs:
       - name: Isolation invariants
         run: uv run --no-sync python deploy/k8s/validate.py /tmp/capgate-k8s.yaml
 
+  k8s-e2e:
+    name: "k8s-e2e (live cluster: kind + Calico NetworkPolicy)"
+    # Heavy: spins up kind with Calico (a CNI that enforces NetworkPolicy egress),
+    # deploys the stack, runs the real compromised-agent Job, and asserts the
+    # cluster controls hold live. On demand and nightly, not on every push.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    env:
+      CALICO_VERSION: v3.28.2
+      KIND_VERSION: v0.24.0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install kind
+        run: |
+          set -euo pipefail
+          curl -fsSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          sudo chmod +x /usr/local/bin/kind
+          kind version
+      - name: Create the environment
+        run: |
+          uv venv --python 3.12
+          uv pip install -e ".[dev]"
+      - name: Create kind cluster (default CNI disabled)
+        run: kind create cluster --config deploy/k8s-e2e/kind.yaml --wait 120s
+      - name: Install Calico and wait for it
+        run: |
+          set -euo pipefail
+          kubectl apply -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/calico.yaml"
+          kubectl -n kube-system rollout status daemonset/calico-node --timeout=300s
+          kubectl wait --for=condition=Ready nodes --all --timeout=300s
+      - name: Build images and load them into kind
+        run: |
+          set -euo pipefail
+          uv run --no-sync python deploy/fetch_artifacts.py
+          docker build -t capgate-harness:local -f deploy/harness/Dockerfile --build-arg BASE_IMAGE=alpine:latest .
+          docker build -t capgate-proxy:local  -f deploy/proxy/Dockerfile   --build-arg BASE_IMAGE=alpine:latest .
+          docker build -t capgate-agent:local  -f deploy/agent/Dockerfile   --build-arg BASE_IMAGE=alpine:latest .
+          kind load docker-image capgate-harness:local capgate-proxy:local capgate-agent:local
+      - name: Deploy the stack (agent Job starts suspended)
+        run: kubectl kustomize --load-restrictor LoadRestrictionsNone deploy/k8s-e2e | kubectl apply -f -
+      - name: Bootstrap secrets and the agent token
+        run: sh deploy/k8s/bootstrap.sh capgate
+      - name: Wait for harness, tools and proxy
+        run: |
+          set -euo pipefail
+          kubectl -n capgate rollout status deploy/tools   --timeout=180s
+          kubectl -n capgate rollout status deploy/harness --timeout=180s
+          kubectl -n capgate rollout status deploy/proxy   --timeout=180s
+      - name: Run the compromised agent
+        run: |
+          set -euo pipefail
+          kubectl -n capgate patch job/agent --type=merge -p '{"spec":{"suspend":false}}'
+          kubectl -n capgate wait --for=condition=complete job/agent --timeout=300s \
+            || { kubectl -n capgate wait --for=condition=failed job/agent --timeout=5s && echo "agent Job failed" && exit 1; }
+      - name: Collect ground truth and assert
+        run: |
+          set -euo pipefail
+          kubectl -n capgate logs job/agent | grep -E '^\{' | tail -1 > /tmp/obs.json
+          kubectl -n capgate exec deploy/tools   -- cat /data/ledger.jsonl > /tmp/ledger.jsonl || true
+          kubectl -n capgate exec deploy/harness -- python3 -m capgate.cli audit /data/audit.jsonl --json > /tmp/audit.json
+          uv run --no-sync python deploy/k8s-e2e/assert.py /tmp/obs.json /tmp/ledger.jsonl /tmp/audit.json
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl -n capgate get pods -o wide || true
+          kubectl -n capgate get networkpolicies || true
+          kubectl -n capgate describe pods || true
+          kubectl -n capgate logs job/agent --tail=200 || true
+          kubectl -n capgate logs deploy/harness --tail=100 || true
+          kubectl -n capgate logs deploy/proxy --tail=50 || true
+      - name: Tear down
+        if: always()
+        run: kind delete cluster || true
+
   docker:
     name: docker (isolation, mTLS edge, multi-host state)
     # Heavy (builds images, drives containers with iptables). On demand and nightly, not on every push.

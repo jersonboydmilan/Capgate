@@ -1,0 +1,26 @@
+# End-to-end overlay: run the base deployment (../k8s) on a kind cluster.
+# A sibling of the base so kustomize sees no containment cycle.
+#
+# Two changes from the base, both because kind is not a gVisor node:
+#   * drop the agent's `runtimeClassName: gvisor` — kind has no runsc handler, so
+#     the agent runs under kind's default runc. Kernel isolation is proven
+#     separately by the Docker `gvisor` job; this e2e proves the *cluster*
+#     controls (Calico-enforced NetworkPolicy egress, secret isolation,
+#     securityContext).
+#   * start the agent Job suspended, so CI can bring harness/proxy/tools up and
+#     bootstrap the Secrets before the agent runs (Jobs have no depends_on). CI
+#     unsuspends it once the stack is ready.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../k8s
+
+patches:
+  - target: {kind: Job, name: agent}
+    patch: |-
+      - op: remove
+        path: /spec/template/spec/runtimeClassName
+      - op: add
+        path: /spec/suspend
+        value: true

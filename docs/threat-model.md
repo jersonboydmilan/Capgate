@@ -103,7 +103,7 @@ compromised agent.
 | Kernel / runtime escape | Optional gVisor (`runsc`) runtime for the untrusted agent — a user-space kernel that intercepts syscalls (`deploy/gvisor/`); Kata / Firecracker follow the same overlay pattern | **Yes, with gVisor** — the `gvisor` job re-runs the full attack with the agent under `runsc`, asserting the runtime is really `runsc` and the egress allowlist still holds (`test_gvisor_runtime.py`). Plain runc shares the host kernel: **No**. See [isolation.md](isolation.md) |
 | Compromised Docker host or daemon access | — | **No.** The host is trusted |
 | Harness process compromise via its own API bugs | Narrow API, strict parsing, fail-closed errors | **Partially** — tested behaviour only |
-| Multi-host / Kubernetes deployments | `deploy/k8s/`: default-deny NetworkPolicy, `RuntimeClass: gvisor`, no secrets in the agent pod, locked `securityContext`, Pod Security `restricted` | **Statically** — the `k8s` job schema-checks the manifests and asserts the agent-isolation invariants (`deploy/k8s/validate.py`) on every push; a **live** cluster e2e is still open. See [isolation.md](isolation.md) |
+| Multi-host / Kubernetes deployments | `deploy/k8s/`: default-deny NetworkPolicy, `RuntimeClass: gvisor`, no secrets in the agent pod, locked `securityContext`, Pod Security `restricted` | **Yes** — the `k8s` job schema-checks the manifests and asserts the agent-isolation invariants statically on every push (`deploy/k8s/validate.py`); the `k8s-e2e` job runs the real compromised agent on a live kind + Calico cluster and asserts the egress/secret/side-effect controls hold (`deploy/k8s-e2e/`). See [isolation.md](isolation.md) |
 
 ## Known limits
 
@@ -152,4 +152,4 @@ compromised agent.
 6. CI on every push and a nightly deep-fuzz run — done (`.github/workflows`); outside security review is invited but has not happened yet (`SECURITY.md`).
 7. ~~Workload identity (mTLS / SPIFFE) binding a token to the calling workload~~ — done (`docs/workload-identity.md`). Next: a SPIFFE-aware edge in the reference Docker deployment.
 8. Multi-host state and shared rate limits.
-9. ~~Stronger isolation runtime (gVisor / Kata / Firecracker)~~ — gVisor done (`deploy/gvisor/`, `test_gvisor_runtime.py`); Kata/Firecracker documented. ~~Kubernetes deployment~~ — manifests + static invariant checks done (`deploy/k8s/`, `validate.py`, the `k8s` CI job). Next: a live cluster end-to-end run.
+9. ~~Stronger isolation runtime (gVisor / Kata / Firecracker)~~ — gVisor done (`deploy/gvisor/`, `test_gvisor_runtime.py`); Kata/Firecracker documented. ~~Kubernetes deployment~~ — manifests + static invariant checks (`deploy/k8s/`, `validate.py`, the `k8s` CI job) and a ~~live cluster end-to-end run~~ (`deploy/k8s-e2e/`, the `k8s-e2e` CI job: kind + Calico, real agent Job). Next: an outside security review.
