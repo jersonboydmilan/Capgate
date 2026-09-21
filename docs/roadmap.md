@@ -59,7 +59,9 @@ not enforced today.
 1. **Outside security review.** CI and [SECURITY.md](../SECURITY.md) invite it;
    it has not happened yet. Every "the boundary holds" claim so far rests on
    tests the authors wrote. This is the single most important open item for
-   credibility — see [SECURITY.md](../SECURITY.md) for the exact claims to break.
+   credibility — see [SECURITY.md](../SECURITY.md) for the exact claims to break
+   and the [reviewer brief](reviewer-brief.md) for the attack surface, setup, and
+   where to look first.
 2. ~~A real LLM-agent-loop example~~ — done: [`examples/agent_loop`](../examples/agent_loop/README.md),
    a provider-agnostic tool-use loop (real Claude model or a deterministic
    offline stand-in) where every tool call is authorized by Capgate.

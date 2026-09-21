@@ -25,7 +25,9 @@ ignores the SDK should not be able to:
 
 The [threat model](docs/threat-model.md) states precisely what is and is not
 claimed, including what is out of scope (kernel/runtime escape, a compromised
-Docker host, harness API bugs are in scope).
+Docker host, harness API bugs are in scope). For a scoped starting point — the
+attack surface, how to stand the system up and attack it, and where to look
+first — see the [reviewer brief](docs/reviewer-brief.md).
 
 If you find a way to do any of the above — or anything else that lets an agent
 act outside its contract — we want to know.
@@ -48,7 +50,7 @@ prefer otherwise.
 
 ## Scope
 
-In scope: everything under `src/harness/`, the reference deployment in
+In scope: everything under `src/capgate/`, the reference deployment in
 `deploy/`, and the documented API. A finding that only affects a cooperative,
 in-process integration (an agent sharing the harness's own process) is a
 hardening note, not a boundary break — see the threat model on why in-process

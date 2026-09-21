@@ -32,7 +32,7 @@ unable to reach a tool.
 - [The contract](#the-contract) · [The API](#the-api) · [Delegation](#delegation-does-not-transfer-authority)
 - [What is actually enforced](#what-is-actually-enforced) · [MCP](#mcp-agents-call-in-through-the-boundary)
 - [Audit trail](#audit-trail) · [Tests](#tests) · [Status](#status)
-- Design: [DESIGN.md](DESIGN.md) (the five invariants) · [Workload identity](docs/workload-identity.md) · [Isolation runtime](docs/isolation.md) · [State & multi-host](docs/state.md) · [docs/threat-model.md](docs/threat-model.md) · [Roadmap](docs/roadmap.md) · [SECURITY.md](SECURITY.md)
+- Design: [DESIGN.md](DESIGN.md) (the five invariants) · [Workload identity](docs/workload-identity.md) · [Isolation runtime](docs/isolation.md) · [State & multi-host](docs/state.md) · [docs/threat-model.md](docs/threat-model.md) · [Roadmap](docs/roadmap.md) · [SECURITY.md](SECURITY.md) · [Reviewer brief](docs/reviewer-brief.md)
 
 ## The boundary, under attack
 
@@ -344,7 +344,7 @@ HTTP transports.
 ## Layout
 
 ```
-src/harness/      contract, capability, policy, decision, request, interceptor,
+src/capgate/      contract, capability, policy, decision, request, interceptor,
                   executor, audit, core (Harness), simulation, cli, tools, identity,
                   state, ratelimit, api (transport-independent core), asgi + server
                   (uvicorn/stdlib transports), inspect/ (local UI), mcp/ (gateway,
