@@ -20,8 +20,10 @@ IMG="${CAPGATE_HARNESS_IMAGE:-capgate-harness:local}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
+# Run as the host user (the image's default user is uid 20001) so the container
+# can write into $WORK, and the host can read the results back.
 echo "generating harness secrets with $IMG…"
-docker run --rm -v "$WORK:/out" "$IMG" \
+docker run --rm --user "$(id -u):$(id -g)" -v "$WORK:/out" "$IMG" \
   python3 -m capgate.cli bootstrap --secrets-dir /out --tool-credential /out/tool_credential >/dev/null
 
 secret() {  # secret() NAME KEY FILE
@@ -33,7 +35,7 @@ secret harness-token-keyring token_keyring   "$WORK/token_keyring"
 secret tool-credential       tool_credential "$WORK/tool_credential"
 
 echo "issuing the agent's 15-minute token…"
-docker run --rm -v "$WORK:/out" "$IMG" \
+docker run --rm --user "$(id -u):$(id -g)" -v "$WORK:/out" "$IMG" \
   python3 -m capgate.cli token issue --keyring /out/token_keyring \
     --sub researcher --role agent --ttl 15m --max-ttl 15m > "$WORK/token"
 secret agent-token token "$WORK/token"
