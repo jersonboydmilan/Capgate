@@ -5,6 +5,9 @@ release yet; the sections below track the milestones on `main`.
 
 ## Unreleased
 
+### Docs
+- Added a star history chart to the README.
+
 ### Live Kubernetes end-to-end test
 - `deploy/k8s-e2e/`: a kustomize overlay (sibling of the base) and a `k8s-e2e` CI
   job that stand up a real **kind** cluster with **Calico** — a CNI that enforces

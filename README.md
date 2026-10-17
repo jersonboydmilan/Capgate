@@ -375,3 +375,7 @@ multi-host state and shared rate limits; a stronger isolation runtime
 (gVisor / microVM) and a tested Kubernetes deployment; and outside security
 review — see [SECURITY.md](SECURITY.md). Full detail and what is *not* claimed:
 [docs/threat-model.md](docs/threat-model.md).
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=jersonboydmilan/Capgate&type=Date)](https://star-history.com/#jersonboydmilan/Capgate&Date)
